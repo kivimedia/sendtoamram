@@ -6,7 +6,7 @@ const outDir = ".vercel/output/functions/api/index.func";
 mkdirSync(outDir, { recursive: true });
 
 await build({
-  entryPoints: ["api/index.ts"],
+  entryPoints: ["_api/index.ts"],
   bundle: true,
   platform: "node",
   target: "node18",
@@ -33,7 +33,7 @@ writeFileSync(
   JSON.stringify(
     {
       handler: "index.mjs",
-      runtime: "nodejs18.x",
+      runtime: "nodejs20.x",
       launcherType: "Nodejs",
     },
     null,

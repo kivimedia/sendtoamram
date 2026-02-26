@@ -90,8 +90,8 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/dashboard?payment=success`,
-        cancel_url: `${baseUrl}/dashboard?payment=cancelled`,
+        success_url: `${baseUrl}/onboarding?payment=success&businessId=${businessId}`,
+        cancel_url: `${baseUrl}/onboarding?payment=cancelled&businessId=${businessId}`,
         metadata: { businessId },
       });
 
