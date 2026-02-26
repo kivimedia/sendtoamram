@@ -16,7 +16,7 @@ interface DeepScanProgressProps {
   businessId: string;
 }
 
-function useDeepScan(businessId: string) {
+export function useDeepScan(businessId: string) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -192,7 +192,7 @@ export function DeepScanExpandedProgress({ businessId }: DeepScanProgressProps) 
   );
 }
 
-function ScanProgressBars({ data }: { data: DeepScanStatus }) {
+export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
   const steps = [
     {
       label: "חיפוש",

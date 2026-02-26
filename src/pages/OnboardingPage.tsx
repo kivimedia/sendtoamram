@@ -1,27 +1,48 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, Mail, Plus, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CreditCard,
+  Loader2,
+  Mail,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ConnectedInbox,
-  DashboardSummaryResponse,
+  DeepScanStatus,
   InboxProvider,
   OAuthProvider,
-  connectInbox,
-  getOAuthStartUrl,
+  createCheckoutSession,
+  getBillingStatus,
+  getDeepScanStatus,
   getOnboardingState,
-  runInitialScan,
   startOnboarding,
 } from "@/lib/api";
 import { getActiveBusinessId, setActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+import { ScanProgressBars } from "@/components/DeepScanProgress";
+import { getOAuthStartUrl } from "@/lib/api";
 
-const providers: Array<{ id: InboxProvider; name: string; icon: string; color: string }> = [
-  { id: "gmail", name: "Gmail", icon: "📧", color: "bg-red-50 border-red-100" },
-  { id: "outlook", name: "Outlook", icon: "📬", color: "bg-blue-50 border-blue-100" },
-  { id: "imap", name: "מייל אחר (IMAP)", icon: "✉️", color: "bg-secondary border-border" },
+const TOTAL_STEPS = 5;
+
+const providers: Array<{
+  id: InboxProvider;
+  name: string;
+  icon: string;
+  color: string;
+  oauth: boolean;
+}> = [
+  { id: "gmail", name: "Gmail", icon: "📧", color: "bg-red-50 border-red-100", oauth: true },
+  { id: "outlook", name: "Outlook", icon: "📬", color: "bg-blue-50 border-blue-100", oauth: true },
 ];
 
 const OnboardingPage = () => {
@@ -30,11 +51,9 @@ const OnboardingPage = () => {
   const [accountantName, setAccountantName] = useState("");
   const [accountantEmail, setAccountantEmail] = useState("");
   const [connectedInboxes, setConnectedInboxes] = useState<ConnectedInbox[]>([]);
-  const [foundInvoices, setFoundInvoices] = useState(0);
-  const [scanSummary, setScanSummary] = useState<DashboardSummaryResponse | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isConnectingProvider, setIsConnectingProvider] = useState<InboxProvider | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -46,18 +65,37 @@ const OnboardingPage = () => {
     exit: { x: 50, opacity: 0 },
   };
 
+  // Poll deep scan status when on step 3
+  const scanStatusQuery = useQuery<DeepScanStatus>({
+    queryKey: ["deep-scan", "status", businessId],
+    queryFn: () => getDeepScanStatus(businessId!),
+    enabled: step === 3 && Boolean(businessId),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Keep polling while active, or if no scan started yet (webhook may not have fired)
+      if (!data || data.active || !data.scanJobId) return 3000;
+      return false;
+    },
+  });
+
+  // Auto-advance from step 3 to step 4 when scan completes
+  useEffect(() => {
+    const data = scanStatusQuery.data;
+    if (step === 3 && data?.status === "COMPLETED") {
+      setTimeout(() => setStep(4), 1000);
+    }
+  }, [scanStatusQuery.data?.status, step]);
+
   const hydrateState = (state: Awaited<ReturnType<typeof getOnboardingState>>) => {
     setBusinessId(state.business.id);
     setAccountantName(state.business.accountantName);
     setConnectedInboxes(state.connectedInboxes);
-    if (state.connectedInboxes.length > 0) {
-      setStep((current) => (current < 1 ? 1 : current));
-    }
   };
 
   const loadOnboardingState = async (id: string) => {
     const state = await getOnboardingState(id);
     hydrateState(state);
+    return state;
   };
 
   useEffect(() => {
@@ -66,18 +104,29 @@ const OnboardingPage = () => {
     const provider = params.get("provider");
     const callbackBusinessId = params.get("businessId");
     const message = params.get("message");
+    const paymentStatus = params.get("payment");
     const savedBusinessId = getActiveBusinessId();
     const nextBusinessId = callbackBusinessId ?? savedBusinessId;
 
     if (nextBusinessId) {
       setActiveBusinessId(nextBusinessId);
-      loadOnboardingState(nextBusinessId).catch((error) => {
-        toast({
-          title: "טעינת מצב נכשלה",
-          description: error instanceof Error ? error.message : "לא הצלחנו לטעון את מצב ההתחברות.",
-          variant: "destructive",
+      loadOnboardingState(nextBusinessId)
+        .then((state) => {
+          // Determine which step to show based on state
+          if (paymentStatus === "success") {
+            // Just paid — go to scan progress
+            setStep(3);
+          } else if (state.connectedInboxes.length > 0) {
+            setStep(1);
+          }
+        })
+        .catch((error) => {
+          toast({
+            title: "טעינת מצב נכשלה",
+            description: error instanceof Error ? error.message : "לא הצלחנו לטעון את מצב ההתחברות.",
+            variant: "destructive",
+          });
         });
-      });
     }
 
     if (oauthStatus === "success" && provider) {
@@ -95,7 +144,16 @@ const OnboardingPage = () => {
       setStep(1);
     }
 
-    if (oauthStatus || callbackBusinessId || provider || message) {
+    if (paymentStatus === "cancelled") {
+      toast({
+        title: "התשלום בוטל",
+        description: "אפשר לנסות שוב בכל עת.",
+        variant: "destructive",
+      });
+      setStep(2);
+    }
+
+    if (oauthStatus || callbackBusinessId || provider || message || paymentStatus) {
       window.history.replaceState(null, "", "/onboarding");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,15 +192,8 @@ const OnboardingPage = () => {
 
     setIsConnectingProvider(provider);
     try {
-      if (provider === "gmail" || provider === "outlook") {
-        const response = await getOAuthStartUrl(businessId, provider as OAuthProvider);
-        window.location.href = response.authUrl;
-        return;
-      }
-
-      const response = await connectInbox({ businessId, provider });
-      setConnectedInboxes(response.connectedInboxes);
-      setIsConnectingProvider(null);
+      const response = await getOAuthStartUrl(businessId, provider as OAuthProvider);
+      window.location.href = response.authUrl;
     } catch (error) {
       toast({
         title: "חיבור תיבה נכשל",
@@ -153,24 +204,27 @@ const OnboardingPage = () => {
     }
   };
 
-  const runScan = async () => {
-    if (!businessId) {
-      return;
-    }
-    setIsScanning(true);
+  const handleCheckout = async () => {
+    if (!businessId) return;
+    setIsCheckingOut(true);
     try {
-      const response = await runInitialScan({ businessId });
-      setFoundInvoices(response.foundInvoices);
-      setScanSummary(response.summary);
-      setTimeout(() => setStep(2), 900);
+      const response = await createCheckoutSession(businessId);
+      if (response.alreadyPaid) {
+        // Already paid — skip to scan progress
+        setStep(3);
+        return;
+      }
+      if (response.checkoutUrl) {
+        window.location.href = response.checkoutUrl;
+      }
     } catch (error) {
       toast({
-        title: "סריקה נכשלה",
-        description: error instanceof Error ? error.message : "לא הצלחנו לסרוק מסמכים כרגע.",
+        title: "שגיאת תשלום",
+        description: error instanceof Error ? error.message : "לא הצלחנו ליצור עמוד תשלום.",
         variant: "destructive",
       });
     } finally {
-      setIsScanning(false);
+      setIsCheckingOut(false);
     }
   };
 
@@ -178,11 +232,15 @@ const OnboardingPage = () => {
     navigate("/dashboard");
   };
 
+  const scanData = scanStatusQuery.data;
+  const scanCreated = scanData?.processing?.created ?? 0;
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-xl">
+        {/* Progress bar */}
         <div className="flex items-center gap-2 mb-8">
-          {[0, 1, 2].map((s) => (
+          {Array.from({ length: TOTAL_STEPS }, (_, s) => (
             <div key={s} className="flex-1 h-1.5 rounded-full overflow-hidden bg-secondary">
               <motion.div
                 className="h-full gradient-coral rounded-full"
@@ -195,55 +253,93 @@ const OnboardingPage = () => {
         </div>
 
         <AnimatePresence mode="wait">
+          {/* ── Step 0: Accountant Name ── */}
           {step === 0 && (
-            <motion.div key="step0" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border">
+            <motion.div
+              key="step0"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border"
+            >
               <div className="w-16 h-16 rounded-2xl gradient-coral flex items-center justify-center mb-6 shadow-coral">
                 <Sparkles className="w-8 h-8 text-accent-foreground" />
               </div>
-              <h1 className="font-display text-3xl font-bold text-foreground mb-3">איך קוראים לרואה החשבון שלך?</h1>
-              <p className="text-muted-foreground mb-8">נתאים את כל החוויה סביבו כדי שהמסמכים יגיעו בזמן.</p>
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                איך קוראים לרואה החשבון שלך?
+              </h1>
+              <p className="text-muted-foreground mb-8">
+                נתאים את כל החוויה סביבו כדי שהמסמכים יגיעו בזמן.
+              </p>
               <Input
                 placeholder="לדוגמה: סיגל, משה, דבורה..."
                 value={accountantName}
-                onChange={(event) => setAccountantName(event.target.value)}
+                onChange={(e) => setAccountantName(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
               />
               <Input
                 type="email"
                 placeholder="כתובת מייל של רואה החשבון"
                 value={accountantEmail}
-                onChange={(event) => setAccountantEmail(event.target.value)}
+                onChange={(e) => setAccountantEmail(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-4 border-border focus:border-coral focus:ring-coral"
                 dir="ltr"
               />
               <Button variant="coral" className="w-full h-12" onClick={beginOnboarding} disabled={isStarting}>
-                {isStarting ? "מגדירים את החשבון..." : accountantName ? "יאללה, קדימה!" : "בלי שם, קדימה"} <ArrowLeft className="w-4 h-4" />
+                {isStarting
+                  ? "מגדירים את החשבון..."
+                  : accountantName
+                    ? "יאללה, קדימה!"
+                    : "בלי שם, קדימה"}{" "}
+                <ArrowLeft className="w-4 h-4" />
               </Button>
             </motion.div>
           )}
 
+          {/* ── Step 1: Connect Email ── */}
           {step === 1 && (
-            <motion.div key="step1" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border">
+            <motion.div
+              key="step1"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border"
+            >
               <div className="w-16 h-16 rounded-2xl bg-coral-light flex items-center justify-center mb-6">
                 <Mail className="w-8 h-8 text-coral" />
               </div>
-              <h1 className="font-display text-3xl font-bold text-foreground mb-3">חבר את תיבות הדואר שלך</h1>
-              <p className="text-muted-foreground mb-8">נסרוק את תיבת הדואר ונמצא חשבוניות וקבלות אוטומטית.</p>
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                חבר את תיבות הדואר שלך
+              </h1>
+              <p className="text-muted-foreground mb-8">
+                נחבר את המייל שלך כדי לסרוק חשבוניות וקבלות אוטומטית.
+              </p>
 
-              {/* Connected inboxes list */}
+              {/* Connected inboxes */}
               {connectedInboxes.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {connectedInboxes.map((inbox) => (
-                    <div key={inbox.id} className="flex items-center gap-3 p-3 rounded-xl border border-success bg-success/5">
+                    <div
+                      key={inbox.id}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-success bg-success/5"
+                    >
                       <Check className="w-4 h-4 text-success flex-shrink-0" />
-                      <span className="text-sm font-medium text-foreground flex-1 text-right">{inbox.email}</span>
-                      <span className="text-xs text-success">{inbox.provider === "gmail" ? "Gmail" : inbox.provider === "outlook" ? "Outlook" : inbox.provider}</span>
+                      <span className="text-sm font-medium text-foreground flex-1 text-right">
+                        {inbox.email}
+                      </span>
+                      <span className="text-xs text-success">
+                        {inbox.provider === "gmail" ? "Gmail" : "Outlook"}
+                      </span>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Provider buttons — always available for adding more */}
+              {/* Provider buttons */}
               <div className="space-y-3 mb-6">
                 {providers.map((provider) => {
                   const isLoading = isConnectingProvider === provider.id;
@@ -261,7 +357,13 @@ const OnboardingPage = () => {
                           : `חבר ${provider.name}`}
                       </span>
                       <span className="text-sm text-muted-foreground">
-                        {isLoading ? "מחבר..." : <><Plus className="w-4 h-4 inline" /> חבר</>}
+                        {isLoading ? (
+                          "מחבר..."
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4 inline" /> חבר
+                          </>
+                        )}
                       </span>
                     </button>
                   );
@@ -272,36 +374,215 @@ const OnboardingPage = () => {
                 <Button variant="outline" onClick={() => setStep(0)} className="h-12">
                   <ArrowRight className="w-4 h-4" />
                 </Button>
-                <Button variant="coral" className="flex-1 h-12" onClick={runScan} disabled={connectedInboxes.length === 0 || isScanning}>
-                  {isScanning ? "סורק..." : "סרוק והמשך"} <ArrowLeft className="w-4 h-4" />
+                <Button
+                  variant="coral"
+                  className="flex-1 h-12"
+                  onClick={() => setStep(2)}
+                  disabled={connectedInboxes.length === 0}
+                >
+                  המשך <ArrowLeft className="w-4 h-4" />
                 </Button>
               </div>
             </motion.div>
           )}
 
+          {/* ── Step 2: Deep Scan Pitch + Payment ── */}
           {step === 2 && (
-            <motion.div key="step2" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border text-center">
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", duration: 0.6 }} className="w-20 h-20 rounded-full gradient-coral flex items-center justify-center mx-auto mb-6 shadow-coral">
-                <Check className="w-10 h-10 text-accent-foreground" />
-              </motion.div>
-              <h1 className="font-display text-3xl font-bold text-foreground mb-3">נמצאו {foundInvoices} חשבוניות!</h1>
-              <p className="text-muted-foreground mb-2">מוכנות לשליחה ל-<span className="font-semibold text-foreground">{displayName}</span>.</p>
-              <p className="text-sm text-muted-foreground mb-8">סיימנו סריקה ראשונית. עכשיו אפשר לראות הכל מסודר בדשבורד.</p>
+            <motion.div
+              key="step2"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border"
+            >
+              <div className="w-16 h-16 rounded-2xl gradient-coral flex items-center justify-center mb-6 shadow-coral">
+                <Search className="w-8 h-8 text-accent-foreground" />
+              </div>
 
-              <div className="grid grid-cols-3 gap-4 mb-8">
-                <div className="bg-secondary rounded-xl p-4">
-                  <p className="font-display font-bold text-2xl text-foreground">{scanSummary?.totals.sent ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">נשלחו</p>
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                סריקה עמוקה של התיבה שלך
+              </h1>
+              <p className="text-muted-foreground mb-6">
+                נסרוק את <span className="font-semibold text-foreground">3 השנים האחרונות</span> של
+                מיילים ונמצא את כל החשבוניות, הקבלות ואישורי התשלום — אוטומטית.
+              </p>
+
+              {/* Feature list */}
+              <div className="space-y-3 mb-6">
+                {[
+                  { icon: Mail, text: "סריקת אלפי מיילים בדקות" },
+                  { icon: Sparkles, text: "זיהוי חכם עם AI — ספקים, סכומים, קטגוריות" },
+                  {
+                    icon: ArrowLeft,
+                    text: `שליחה אוטומטית ל-${displayName} כל חודש`,
+                  },
+                ].map(({ icon: Icon, text }) => (
+                  <div key={text} className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-coral-light flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-4 h-4 text-coral" />
+                    </div>
+                    <span className="text-sm text-foreground">{text}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pricing card */}
+              <div className="bg-secondary rounded-xl p-5 mb-4 border border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-display font-bold text-lg text-foreground">$13</span>
+                  <span className="text-sm text-muted-foreground">דמי הקמה חד-פעמיים</span>
                 </div>
-                <div className="bg-secondary rounded-xl p-4">
-                  <p className="font-display font-bold text-2xl text-foreground">{scanSummary?.totals.pending ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">ממתינות</p>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-display font-bold text-lg text-foreground">$7/חודש</span>
+                  <span className="text-sm text-muted-foreground">מנוי חודשי</span>
                 </div>
-                <div className="bg-secondary rounded-xl p-4">
-                  <p className="font-display font-bold text-2xl text-foreground">{scanSummary?.totals.review ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">לבדיקה</p>
+                <div className="flex items-center gap-2 text-sm text-success">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span className="font-medium">30 יום אחריות — לא מרוצה? כסף בחזרה.</span>
                 </div>
               </div>
+
+              <Button
+                variant="hero"
+                className="w-full h-12 mb-3"
+                onClick={handleCheckout}
+                disabled={isCheckingOut}
+              >
+                {isCheckingOut ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> מעבד...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="w-5 h-5" /> הפעל סריקה עמוקה
+                  </>
+                )}
+              </Button>
+
+              <Button variant="outline" className="w-full h-10" onClick={() => setStep(1)}>
+                <ArrowRight className="w-4 h-4" /> חזור
+              </Button>
+            </motion.div>
+          )}
+
+          {/* ── Step 3: Deep Scan Progress ── */}
+          {step === 3 && (
+            <motion.div
+              key="step3"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl gradient-coral flex items-center justify-center mx-auto mb-6 shadow-coral">
+                <Loader2 className="w-8 h-8 text-accent-foreground animate-spin" />
+              </div>
+
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                {!scanData || !scanData.scanJobId
+                  ? "מכינים את הסריקה..."
+                  : scanData.status === "DISCOVERING"
+                    ? "מחפשים מיילים..."
+                    : scanData.status === "PROCESSING"
+                      ? "מעבדים חשבוניות..."
+                      : scanData.status === "AI_PASS"
+                        ? "חילוץ חכם עם AI..."
+                        : scanData.status === "COMPLETED"
+                          ? "הסריקה הושלמה!"
+                          : scanData.status === "FAILED"
+                            ? "הסריקה נכשלה"
+                            : "סורקים..."}
+              </h1>
+              <p className="text-muted-foreground mb-8">
+                {!scanData || !scanData.scanJobId
+                  ? "תהליך הסריקה יתחיל עוד רגע..."
+                  : scanData.status === "FAILED"
+                    ? scanData.lastError ?? "אירעה שגיאה. ניתן לנסות שוב מהדשבורד."
+                    : `סורקים את המייל שלך ומחפשים חשבוניות עבור ${displayName}.`}
+              </p>
+
+              {/* Progress bars — reuse from DeepScanProgress */}
+              {scanData && scanData.scanJobId && scanData.status !== "FAILED" && (
+                <div className="text-right mb-8">
+                  <ScanProgressBars data={scanData} />
+                </div>
+              )}
+
+              {/* Live counter */}
+              {scanData && scanCreated > 0 && (
+                <div className="bg-secondary rounded-xl p-4 mb-6">
+                  <p className="font-display font-bold text-3xl text-foreground">
+                    {scanCreated.toLocaleString("he-IL")}
+                  </p>
+                  <p className="text-sm text-muted-foreground">חשבוניות נמצאו עד כה</p>
+                </div>
+              )}
+
+              {scanData?.status === "FAILED" && (
+                <Button variant="coral" className="w-full h-12" onClick={handleFinish}>
+                  עבור לדשבורד <ArrowLeft className="w-5 h-5" />
+                </Button>
+              )}
+            </motion.div>
+          )}
+
+          {/* ── Step 4: Results ── */}
+          {step === 4 && (
+            <motion.div
+              key="step4"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border text-center"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", duration: 0.6 }}
+                className="w-20 h-20 rounded-full gradient-coral flex items-center justify-center mx-auto mb-6 shadow-coral"
+              >
+                <Check className="w-10 h-10 text-accent-foreground" />
+              </motion.div>
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                נמצאו {scanCreated.toLocaleString("he-IL")} חשבוניות!
+              </h1>
+              <p className="text-muted-foreground mb-2">
+                מוכנות לשליחה ל-
+                <span className="font-semibold text-foreground">{displayName}</span>.
+              </p>
+              <p className="text-sm text-muted-foreground mb-8">
+                סיימנו את הסריקה העמוקה. עכשיו אפשר לראות הכל מסודר בדשבורד.
+              </p>
+
+              {/* Stats grid */}
+              {scanData?.processing && (
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  <div className="bg-secondary rounded-xl p-4">
+                    <p className="font-display font-bold text-2xl text-foreground">
+                      {scanData.processing.created}
+                    </p>
+                    <p className="text-xs text-muted-foreground">נמצאו</p>
+                  </div>
+                  <div className="bg-secondary rounded-xl p-4">
+                    <p className="font-display font-bold text-2xl text-foreground">
+                      {scanData.processing.total.toLocaleString("he-IL")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">מיילים נסרקו</p>
+                  </div>
+                  <div className="bg-secondary rounded-xl p-4">
+                    <p className="font-display font-bold text-2xl text-foreground">
+                      {scanData.ai?.processed ?? 0}
+                    </p>
+                    <p className="text-xs text-muted-foreground">עובדו ב-AI</p>
+                  </div>
+                </div>
+              )}
 
               <Button variant="hero" className="w-full" onClick={handleFinish}>
                 עבור לדשבורד <ArrowLeft className="w-5 h-5" />
