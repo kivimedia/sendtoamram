@@ -52,13 +52,17 @@ export async function gmailFetch(accessToken: string, path: string): Promise<any
   return response.json();
 }
 
-async function fetchRecentMessageIds(accessToken: string, maxResults: number): Promise<string[]> {
-  const query = encodeURIComponent(
-    "has:attachment OR subject:(חשבונית OR invoice OR receipt OR קבלה OR payment OR תשלום OR billing OR הזמנה)",
-  );
+async function fetchRecentMessageIds(accessToken: string, maxResults: number, afterDate?: Date): Promise<string[]> {
+  let q = "has:attachment OR subject:(חשבונית OR invoice OR receipt OR קבלה OR payment OR תשלום OR billing OR הזמנה)";
+  if (afterDate) {
+    const y = afterDate.getFullYear();
+    const m = String(afterDate.getMonth() + 1).padStart(2, "0");
+    const d = String(afterDate.getDate()).padStart(2, "0");
+    q = `after:${y}/${m}/${d} (${q})`;
+  }
   const data: GmailListResponse = await gmailFetch(
     accessToken,
-    `/messages?maxResults=${maxResults}&q=${query}`,
+    `/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`,
   );
   return (data.messages ?? []).map((m) => m.id);
 }
@@ -250,7 +254,13 @@ export function extractDocumentFromEmail(
 
 // ─── Main sync function ───
 
-export async function syncGmailInbox(inboxConnectionId: string): Promise<{ newDocuments: number }> {
+export interface SyncOptions {
+  /** Quick scan mode: skip AI, skip attachments, 3-month window, max 10 messages */
+  quickScan?: boolean;
+}
+
+export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOptions): Promise<{ newDocuments: number }> {
+  const { quickScan = false } = options ?? {};
   const inbox = await store.getInboxConnection(inboxConnectionId);
   if (!inbox || !inbox.oauthConnectionId) {
     throw new Error("No OAuth connection for this inbox");
@@ -274,17 +284,22 @@ export async function syncGmailInbox(inboxConnectionId: string): Promise<{ newDo
   const historyId = inbox.gmailHistoryId;
   let messageIds: string[];
 
-  if (historyId) {
+  if (quickScan) {
+    // Quick scan: last 3 months, max 10 messages, no AI
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    messageIds = await fetchRecentMessageIds(accessToken, 10, threeMonthsAgo);
+  } else if (historyId) {
     messageIds = await fetchNewMessageIdsSinceHistory(accessToken, historyId);
   } else {
     messageIds = await fetchRecentMessageIds(accessToken, 50);
   }
 
-  console.log(`[gmail-sync] Found ${messageIds.length} messages to process for inbox ${inboxConnectionId}`);
+  console.log(`[gmail-sync] Found ${messageIds.length} messages to process for inbox ${inboxConnectionId}${quickScan ? " (quick scan)" : ""}`);
 
   // Load learned vendor→category mappings for AI prompt enhancement
   let vendorMappings: VendorCategoryMapping[] = [];
-  if (isAiEnabled()) {
+  if (!quickScan && isAiEnabled()) {
     try {
       const mappings = await store.getVendorCategoryMappings(inbox.businessId);
       vendorMappings = mappings.map(m => ({
@@ -308,8 +323,8 @@ export async function syncGmailInbox(inboxConnectionId: string): Promise<{ newDo
       const doc = extractDocumentFromEmail(message, inbox);
       if (!doc) continue;
 
-      // AI extraction (if enabled and under batch limit)
-      if (isAiEnabled() && aiProcessed < AI_BATCH_LIMIT) {
+      // AI extraction (if enabled, under batch limit, and NOT quick scan)
+      if (!quickScan && isAiEnabled() && aiProcessed < AI_BATCH_LIMIT) {
         try {
           if (doc.attachments.length > 0) {
             // Download and process the first attachment
@@ -355,7 +370,7 @@ export async function syncGmailInbox(inboxConnectionId: string): Promise<{ newDo
       }
 
       // Apply learned vendor→category override (exact match wins over AI)
-      if (doc.vendorName) {
+      if (!quickScan && doc.vendorName) {
         try {
           const mapping = await store.getVendorCategoryMapping(inbox.businessId, doc.vendorName);
           if (mapping) {
