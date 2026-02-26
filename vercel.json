@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run vercel-build",
+  "crons": [
+    { "path": "/api/cron/monthly-delivery", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/gmail-sync", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/deep-scan", "schedule": "*/1 * * * *" },
+    { "path": "/api/cron/missing-receipts", "schedule": "0 9 1 * *" }
+  ]
+}
