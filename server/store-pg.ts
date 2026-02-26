@@ -1483,6 +1483,45 @@ export class AppStorePg {
     );
   }
 
+  /** Lightweight document lookup by ID (for deep scan vendor checks). */
+  async getDocumentById(
+    documentId: string,
+  ): Promise<{ id: string; vendorName: string; businessId: string } | null> {
+    return this.queryOne(
+      `SELECT id, vendor_name AS "vendorName", business_id AS "businessId"
+       FROM documents WHERE id = $1`,
+      [documentId],
+    );
+  }
+
+  /**
+   * Returns the most common AI-extracted data for a vendor if we have 3+ high-confidence docs.
+   * Used to skip AI for repeat vendors during deep scan.
+   */
+  async getKnownVendorExtraction(
+    businessId: string,
+    vendorName: string,
+  ): Promise<{ vendorName: string; category: string; confidence: number } | null> {
+    const normalized = vendorName.trim().toLowerCase();
+    const row = await this.queryOne<{ cnt: string; vendorName: string; category: string; avgConf: number }>(
+      `SELECT COUNT(*)::text AS cnt,
+              vendor_name AS "vendorName",
+              category,
+              AVG(confidence) AS "avgConf"
+       FROM documents
+       WHERE business_id = $1
+         AND LOWER(vendor_name) = $2
+         AND confidence >= 0.6
+         AND category IS NOT NULL
+       GROUP BY vendor_name, category
+       ORDER BY COUNT(*) DESC
+       LIMIT 1`,
+      [businessId, normalized],
+    );
+    if (!row || parseInt(row.cnt) < 3) return null;
+    return { vendorName: row.vendorName, category: row.category, confidence: row.avgConf };
+  }
+
   // ─── Vendor patterns (missing receipt detection) ───
 
   async upsertVendorPattern(pattern: {
