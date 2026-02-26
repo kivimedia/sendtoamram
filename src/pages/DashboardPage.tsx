@@ -284,6 +284,7 @@ const DashboardPage = () => {
   });
 
   // Billing state from summary
+  const summary = summaryQuery.data;
   const billing = summary?.billing;
   const isPaid = !billing || (billing.onboardingPaid && billing.subscriptionStatus === "active");
 
@@ -300,7 +301,6 @@ const DashboardPage = () => {
     return <Navigate to="/onboarding" replace />;
   }
 
-  const summary = summaryQuery.data;
   const stats = summary
     ? [
         {
