@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   CreditCard,
+  FileText,
   Loader2,
   Mail,
   Plus,
@@ -17,13 +18,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ConnectedInbox,
+  DashboardDocument,
   DeepScanStatus,
   InboxProvider,
   OAuthProvider,
   createCheckoutSession,
   getBillingStatus,
+  getDashboardDocuments,
   getDeepScanStatus,
   getOnboardingState,
+  runInitialScan,
   startOnboarding,
 } from "@/lib/api";
 import { getActiveBusinessId, setActiveBusinessId } from "@/lib/session";
@@ -32,7 +36,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScanProgressBars } from "@/components/DeepScanProgress";
 import { getOAuthStartUrl } from "@/lib/api";
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 
 const providers: Array<{
   id: InboxProvider;
@@ -54,6 +58,12 @@ const OnboardingPage = () => {
   const [isStarting, setIsStarting] = useState(false);
   const [isConnectingProvider, setIsConnectingProvider] = useState<InboxProvider | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isQuickScanning, setIsQuickScanning] = useState(false);
+  const [quickScanResult, setQuickScanResult] = useState<{
+    foundInvoices: number;
+    totalAmountCents: number;
+    previewDocs: DashboardDocument[];
+  } | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -65,11 +75,11 @@ const OnboardingPage = () => {
     exit: { x: 50, opacity: 0 },
   };
 
-  // Poll deep scan status when on step 3
+  // Poll deep scan status when on step 4
   const scanStatusQuery = useQuery<DeepScanStatus>({
     queryKey: ["deep-scan", "status", businessId],
     queryFn: () => getDeepScanStatus(businessId!),
-    enabled: step === 3 && Boolean(businessId),
+    enabled: step === 4 && Boolean(businessId),
     refetchInterval: (query) => {
       const data = query.state.data;
       // Keep polling while active, or if no scan started yet (webhook may not have fired)
@@ -78,11 +88,11 @@ const OnboardingPage = () => {
     },
   });
 
-  // Auto-advance from step 3 to step 4 when scan completes
+  // Auto-advance from step 4 to step 5 when scan completes
   useEffect(() => {
     const data = scanStatusQuery.data;
-    if (step === 3 && data?.status === "COMPLETED") {
-      setTimeout(() => setStep(4), 1000);
+    if (step === 4 && data?.status === "COMPLETED") {
+      setTimeout(() => setStep(5), 1000);
     }
   }, [scanStatusQuery.data?.status, step]);
 
@@ -114,8 +124,8 @@ const OnboardingPage = () => {
         .then((state) => {
           // Determine which step to show based on state
           if (paymentStatus === "success") {
-            // Just paid — go to scan progress
-            setStep(3);
+            // Just paid — go to deep scan progress
+            setStep(4);
           } else if (state.connectedInboxes.length > 0) {
             setStep(1);
           }
@@ -150,7 +160,7 @@ const OnboardingPage = () => {
         description: "אפשר לנסות שוב בכל עת.",
         variant: "destructive",
       });
-      setStep(2);
+      setStep(3);
     }
 
     if (oauthStatus || callbackBusinessId || provider || message || paymentStatus) {
@@ -210,8 +220,8 @@ const OnboardingPage = () => {
     try {
       const response = await createCheckoutSession(businessId);
       if (response.alreadyPaid) {
-        // Already paid — skip to scan progress
-        setStep(3);
+        // Already paid — skip to deep scan progress
+        setStep(4);
         return;
       }
       if (response.checkoutUrl) {
@@ -225,6 +235,36 @@ const OnboardingPage = () => {
       });
     } finally {
       setIsCheckingOut(false);
+    }
+  };
+
+  const handleQuickScan = async () => {
+    if (!businessId) return;
+    setIsQuickScanning(true);
+    try {
+      const result = await runInitialScan({ businessId });
+      // Fetch actual document previews
+      let previewDocs: DashboardDocument[] = [];
+      try {
+        const docsResponse = await getDashboardDocuments(businessId, "all");
+        previewDocs = docsResponse.documents.slice(0, 5);
+      } catch {
+        // Preview docs are nice-to-have, don't block
+      }
+      setQuickScanResult({
+        foundInvoices: result.foundInvoices,
+        totalAmountCents: result.totalAmountCents,
+        previewDocs,
+      });
+      setStep(2);
+    } catch (error) {
+      toast({
+        title: "הסריקה נכשלה",
+        description: error instanceof Error ? error.message : "לא הצלחנו לסרוק את התיבה.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsQuickScanning(false);
     }
   };
 
@@ -377,19 +417,106 @@ const OnboardingPage = () => {
                 <Button
                   variant="coral"
                   className="flex-1 h-12"
-                  onClick={() => setStep(2)}
-                  disabled={connectedInboxes.length === 0}
+                  onClick={handleQuickScan}
+                  disabled={connectedInboxes.length === 0 || isQuickScanning}
                 >
-                  המשך <ArrowLeft className="w-4 h-4" />
+                  {isQuickScanning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> סורק את התיבה...
+                    </>
+                  ) : (
+                    <>
+                      סרוק והמשך <ArrowLeft className="w-4 h-4" />
+                    </>
+                  )}
                 </Button>
               </div>
             </motion.div>
           )}
 
-          {/* ── Step 2: Deep Scan Pitch + Payment ── */}
+          {/* ── Step 2: Quick Scan Preview ── */}
           {step === 2 && (
             <motion.div
               key="step2"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-coral-light flex items-center justify-center mb-6">
+                <FileText className="w-8 h-8 text-coral" />
+              </div>
+
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                {quickScanResult && quickScanResult.foundInvoices > 0
+                  ? `מצאנו ${quickScanResult.foundInvoices} חשבוניות!`
+                  : "סריקה ראשונית"}
+              </h1>
+              <p className="text-muted-foreground mb-6">
+                {quickScanResult && quickScanResult.foundInvoices > 0
+                  ? "הנה דוגמאות ממה שמצאנו בתיבה שלך מהחודש האחרון:"
+                  : "לא מצאנו חשבוניות בחודש האחרון — אבל סריקה עמוקה בודקת 3 שנים אחורה."}
+              </p>
+
+              {/* Preview document list */}
+              {quickScanResult && quickScanResult.previewDocs.length > 0 && (
+                <div className="space-y-2 mb-6">
+                  {quickScanResult.previewDocs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between p-3 rounded-xl border border-border bg-secondary/50"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-coral-light flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-4 h-4 text-coral" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{doc.vendor}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(doc.issuedAt).toLocaleDateString("he-IL")}
+                            {doc.category ? ` · ${doc.category}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-foreground whitespace-nowrap mr-2" dir="ltr">
+                        {doc.currency === "ILS" ? "₪" : "$"}
+                        {(doc.amountCents / 100).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Teaser for deep scan */}
+              <div className="bg-secondary rounded-xl p-4 mb-6 border border-border">
+                <p className="text-sm text-foreground font-medium mb-1">
+                  🔍 רוצה את התמונה המלאה?
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  סריקה עמוקה בודקת <span className="font-semibold text-foreground">3 שנים</span> של מיילים ומוצאת הכל — חשבוניות, קבלות ואישורי תשלום.
+                </p>
+              </div>
+
+              <Button
+                variant="hero"
+                className="w-full h-12 mb-3"
+                onClick={() => setStep(3)}
+              >
+                הפעל סריקה עמוקה <ArrowLeft className="w-5 h-5" />
+              </Button>
+
+              <Button variant="outline" className="w-full h-10" onClick={() => setStep(1)}>
+                <ArrowRight className="w-4 h-4" /> חזור
+              </Button>
+            </motion.div>
+          )}
+
+          {/* ── Step 3: Deep Scan Pitch + Payment ── */}
+          {step === 3 && (
+            <motion.div
+              key="step3"
               variants={slideVariants}
               initial="enter"
               animate="center"
@@ -461,16 +588,16 @@ const OnboardingPage = () => {
                 )}
               </Button>
 
-              <Button variant="outline" className="w-full h-10" onClick={() => setStep(1)}>
+              <Button variant="outline" className="w-full h-10" onClick={() => setStep(2)}>
                 <ArrowRight className="w-4 h-4" /> חזור
               </Button>
             </motion.div>
           )}
 
-          {/* ── Step 3: Deep Scan Progress ── */}
-          {step === 3 && (
+          {/* ── Step 4: Deep Scan Progress ── */}
+          {step === 4 && (
             <motion.div
-              key="step3"
+              key="step4"
               variants={slideVariants}
               initial="enter"
               animate="center"
@@ -530,10 +657,10 @@ const OnboardingPage = () => {
             </motion.div>
           )}
 
-          {/* ── Step 4: Results ── */}
-          {step === 4 && (
+          {/* ── Step 5: Results ── */}
+          {step === 5 && (
             <motion.div
-              key="step4"
+              key="step5"
               variants={slideVariants}
               initial="enter"
               animate="center"
