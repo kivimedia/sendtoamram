@@ -45,11 +45,11 @@ export async function registerOnboardingRoutes(app: FastifyInstance): Promise<vo
   app.post("/onboarding/scan", async (request) => {
     const body = scanPayloadSchema.parse(request.body);
 
-    // Sync real Gmail inboxes before building summary
+    // Quick scan: 3-month window, max 10 messages, NO AI (free preview for non-paying users)
     const gmailInboxes = await store.getGmailInboxes(body.businessId);
     for (const inbox of gmailInboxes) {
       try {
-        await syncGmailInbox(inbox.id);
+        await syncGmailInbox(inbox.id, { quickScan: true });
       } catch (error) {
         console.error(`[scan] Gmail sync failed for inbox ${inbox.id}:`, error);
       }
