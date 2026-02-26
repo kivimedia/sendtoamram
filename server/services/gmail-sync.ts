@@ -60,11 +60,20 @@ async function fetchRecentMessageIds(accessToken: string, maxResults: number, af
     const d = String(afterDate.getDate()).padStart(2, "0");
     q = `after:${y}/${m}/${d} (${q})`;
   }
-  const data: GmailListResponse = await gmailFetch(
-    accessToken,
-    `/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`,
-  );
-  return (data.messages ?? []).map((m) => m.id);
+
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  // Gmail API caps maxResults at 500 per page — paginate to reach the requested limit
+  do {
+    const pageSize = Math.min(maxResults - ids.length, 500);
+    let url = `/messages?maxResults=${pageSize}&q=${encodeURIComponent(q)}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+    const data: GmailListResponse = await gmailFetch(accessToken, url);
+    for (const m of data.messages ?? []) ids.push(m.id);
+    pageToken = (data as any).nextPageToken;
+  } while (pageToken && ids.length < maxResults);
+
+  return ids;
 }
 
 async function fetchNewMessageIdsSinceHistory(
@@ -285,10 +294,11 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
   let messageIds: string[];
 
   if (quickScan) {
-    // Quick scan: last 3 months, no AI — but fetch enough messages to find real invoices
+    // Quick scan: last 3 months, no AI — cast a wide net to find real invoices
+    // Gmail reads are free; only cost is time. Fetch up to 1000 IDs, stop processing at 3 docs.
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-    messageIds = await fetchRecentMessageIds(accessToken, 50, threeMonthsAgo);
+    messageIds = await fetchRecentMessageIds(accessToken, 1000, threeMonthsAgo);
   } else if (historyId) {
     messageIds = await fetchNewMessageIdsSinceHistory(accessToken, historyId);
   } else {
@@ -312,8 +322,12 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
   let newDocuments = 0;
   let aiProcessed = 0;
   const AI_BATCH_LIMIT = 5; // Max AI calls per sync cycle for serverless timeout safety
+  const QUICK_SCAN_DOC_LIMIT = 3; // Stop processing once we have enough samples
 
   for (const messageId of messageIds) {
+    // Quick scan early-stop: we only need a few samples to show the user
+    if (quickScan && newDocuments >= QUICK_SCAN_DOC_LIMIT) break;
+
     if (await store.hasDocumentForGmailMessage(inbox.businessId, messageId)) {
       continue;
     }
@@ -395,7 +409,7 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
     console.error("[gmail-sync] Failed to update history cursor:", error);
   }
 
-  console.log(`[gmail-sync] Sync complete: ${newDocuments} new documents`);
+  console.log(`[gmail-sync] Sync complete: ${newDocuments} new documents from ${messageIds.length} candidates${quickScan ? " (quick scan)" : ""}`);
   return { newDocuments };
 }
 
