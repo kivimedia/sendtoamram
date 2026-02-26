@@ -285,10 +285,10 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
   let messageIds: string[];
 
   if (quickScan) {
-    // Quick scan: last 3 months, max 10 messages, no AI
+    // Quick scan: last 3 months, no AI — but fetch enough messages to find real invoices
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-    messageIds = await fetchRecentMessageIds(accessToken, 10, threeMonthsAgo);
+    messageIds = await fetchRecentMessageIds(accessToken, 50, threeMonthsAgo);
   } else if (historyId) {
     messageIds = await fetchNewMessageIdsSinceHistory(accessToken, historyId);
   } else {
