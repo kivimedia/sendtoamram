@@ -15,7 +15,7 @@ const AccountantVerifyPage = () => {
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setError("קישור לא תקין — חסר טוקן.");
+      setError("קישור לא תקין, חסר טוקן.");
       return;
     }
 

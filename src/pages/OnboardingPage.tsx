@@ -457,7 +457,7 @@ const OnboardingPage = () => {
               <p className="text-muted-foreground mb-6">
                 {quickScanResult && quickScanResult.foundInvoices > 0
                   ? "הנה דוגמאות ממה שמצאנו בתיבה שלך מ-3 החודשים האחרונים:"
-                  : "לא מצאנו חשבוניות ב-3 החודשים האחרונים — אבל סריקה עמוקה בודקת 3 שנים אחורה."}
+                  : "לא מצאנו חשבוניות ב-3 החודשים האחרונים, אבל סריקה עמוקה בודקת 3 שנים אחורה."}
               </p>
 
               {/* Preview document list */}
@@ -495,7 +495,7 @@ const OnboardingPage = () => {
                   🔍 רוצה את התמונה המלאה?
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  סריקה עמוקה בודקת <span className="font-semibold text-foreground">3 שנים</span> של מיילים ומוצאת הכל — חשבוניות, קבלות ואישורי תשלום.
+                  סריקה עמוקה בודקת <span className="font-semibold text-foreground">3 שנים</span> של מיילים ומוצאת הכל: חשבוניות, קבלות ואישורי תשלום.
                 </p>
               </div>
 
@@ -533,14 +533,14 @@ const OnboardingPage = () => {
               </h1>
               <p className="text-muted-foreground mb-6">
                 נסרוק את <span className="font-semibold text-foreground">3 השנים האחרונות</span> של
-                מיילים ונמצא את כל החשבוניות, הקבלות ואישורי התשלום — אוטומטית.
+                מיילים ונמצא את כל החשבוניות, הקבלות ואישורי התשלום. אוטומטית.
               </p>
 
               {/* Feature list */}
               <div className="space-y-3 mb-6">
                 {[
                   { icon: Mail, text: "סריקת אלפי מיילים בדקות" },
-                  { icon: Sparkles, text: "זיהוי חכם עם AI — ספקים, סכומים, קטגוריות" },
+                  { icon: Sparkles, text: "זיהוי חכם עם AI: ספקים, סכומים, קטגוריות" },
                   {
                     icon: ArrowLeft,
                     text: `שליחה אוטומטית ל-${displayName} כל חודש`,
@@ -558,16 +558,16 @@ const OnboardingPage = () => {
               {/* Pricing card */}
               <div className="bg-secondary rounded-xl p-5 mb-4 border border-border">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-display font-bold text-lg text-foreground">$13</span>
+                  <span className="font-display font-bold text-lg text-foreground">$13 <span className="text-sm font-normal text-muted-foreground">(כ-₪40)</span></span>
                   <span className="text-sm text-muted-foreground">דמי הקמה חד-פעמיים</span>
                 </div>
                 <div className="flex items-center justify-between mb-3">
-                  <span className="font-display font-bold text-lg text-foreground">$7/חודש</span>
+                  <span className="font-display font-bold text-lg text-foreground">$7/חודש <span className="text-sm font-normal text-muted-foreground">(כ-₪22)</span></span>
                   <span className="text-sm text-muted-foreground">מנוי חודשי</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-success">
                   <ShieldCheck className="w-4 h-4" />
-                  <span className="font-medium">30 יום אחריות — לא מרוצה? כסף בחזרה.</span>
+                  <span className="font-medium">30 יום אחריות. לא מרוצה? כסף בחזרה.</span>
                 </div>
               </div>
 

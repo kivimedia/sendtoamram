@@ -98,7 +98,7 @@ export default function DeepScanProgress({ businessId }: DeepScanProgressProps) 
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5 text-xs text-success">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>סריקה הושלמה — {data.processing?.created ?? 0} מסמכים</span>
+          <span>סריקה הושלמה, {data.processing?.created ?? 0} מסמכים</span>
         </div>
         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
           סרוק שוב
@@ -162,7 +162,7 @@ export function DeepScanExpandedProgress({ businessId }: DeepScanProgressProps) 
           {data.status === "PAUSED" ? (
             <>
               <Pause className="w-4 h-4 text-warning" />
-              <span className="text-sm font-medium">סריקה עמוקה — מושהית</span>
+              <span className="text-sm font-medium">סריקה עמוקה (מושהית)</span>
             </>
           ) : (
             <>
