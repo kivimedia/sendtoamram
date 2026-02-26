@@ -254,11 +254,12 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
     await import("./ai");
   const cheapModel = env.AI_MODEL_CHEAP;
 
-  // Load learned vendor→category mappings
+  // Load learned vendor→category mappings (trimmed to top 5 for cost)
   let vendorMappings: Array<{ vendorNameOriginal: string; category: string }> = [];
   try {
     const mappings = await store.getVendorCategoryMappings(inbox.businessId);
-    vendorMappings = mappings.map(m => ({
+    // Only include top 5 most-corrected mappings to reduce prompt tokens
+    vendorMappings = mappings.slice(0, 5).map((m: any) => ({
       vendorNameOriginal: m.vendorNameOriginal,
       category: m.category,
     }));
@@ -287,6 +288,7 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
 
   const startTime = Date.now();
   let processed = 0;
+  let aiSkipped = 0;
 
   for (let i = 0; i < batch.length; i++) {
     if (Date.now() - startTime > TIME_BUDGET_MS) {
@@ -299,6 +301,26 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
 
     const item = batch[i];
     try {
+      // ── Optimization 1: Known vendor skip ──
+      // If we have 3+ high-confidence docs from this vendor, reuse the extraction
+      if (item.documentId) {
+        const doc = await store.getDocumentById(item.documentId);
+        if (doc?.vendorName) {
+          const known = await store.getKnownVendorExtraction(inbox.businessId, doc.vendorName);
+          if (known) {
+            await store.updateDocument(inbox.businessId, item.documentId, {
+              vendorName: known.vendorName,
+              category: known.category,
+              status: "pending",
+            });
+            await store.updateScanMessage(item.id, { status: "AI_DONE" });
+            processed++;
+            aiSkipped++;
+            continue;
+          }
+        }
+      }
+
       // Re-fetch the Gmail message to get attachment info
       const message = await fetchGmailMessage(accessToken, item.gmailMessageId);
 
@@ -317,6 +339,17 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
       if (!att?.body?.attachmentId) {
         await store.updateScanMessage(item.id, { status: "AI_DONE" });
         processed++;
+        continue;
+      }
+
+      // ── Optimization 2: Attachment size filter ──
+      // Skip tiny attachments (<5KB = likely signatures/logos) and huge ones (>2MB = marketing)
+      const attSize = att.body?.size ?? 0;
+      if (attSize > 0 && (attSize < 5_000 || attSize > 2_000_000)) {
+        console.log(`[deep-scan] Skipping attachment ${att.filename} (${attSize} bytes) — outside size range`);
+        await store.updateScanMessage(item.id, { status: "AI_DONE" });
+        processed++;
+        aiSkipped++;
         continue;
       }
 
@@ -356,7 +389,7 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
     aiProcessed: job.aiProcessed + processed,
   });
 
-  console.log(`[deep-scan] AI batch: ${processed} processed`);
+  console.log(`[deep-scan] AI batch: ${processed} processed, ${aiSkipped} skipped (known vendor/size filter)`);
   return { processed, done: false };
 }
 
