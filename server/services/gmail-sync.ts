@@ -321,6 +321,9 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
 
   let newDocuments = 0;
   let aiProcessed = 0;
+  let skippedNoMatch = 0;
+  let skippedDuplicate = 0;
+  let processed = 0;
   const AI_BATCH_LIMIT = 5; // Max AI calls per sync cycle for serverless timeout safety
   const QUICK_SCAN_DOC_LIMIT = 3; // Stop processing once we have enough samples
 
@@ -329,13 +332,23 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
     if (quickScan && newDocuments >= QUICK_SCAN_DOC_LIMIT) break;
 
     if (await store.hasDocumentForGmailMessage(inbox.businessId, messageId)) {
+      skippedDuplicate++;
       continue;
     }
 
     try {
+      processed++;
       const message = await fetchGmailMessage(accessToken, messageId);
       const doc = extractDocumentFromEmail(message, inbox);
-      if (!doc) continue;
+      if (!doc) {
+        skippedNoMatch++;
+        if (quickScan && processed <= 5) {
+          // Log first few skipped messages for debugging
+          const headers = Object.fromEntries(message.payload.headers.map((h: any) => [h.name.toLowerCase(), h.value]));
+          console.log(`[gmail-sync] Skipped message: subject="${headers["subject"]?.substring(0, 80)}" from="${headers["from"]?.substring(0, 50)}"`);
+        }
+        continue;
+      }
 
       // AI extraction (if enabled, under batch limit, and NOT quick scan)
       if (!quickScan && isAiEnabled() && aiProcessed < AI_BATCH_LIMIT) {
@@ -409,7 +422,7 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
     console.error("[gmail-sync] Failed to update history cursor:", error);
   }
 
-  console.log(`[gmail-sync] Sync complete: ${newDocuments} new documents from ${messageIds.length} candidates${quickScan ? " (quick scan)" : ""}`);
+  console.log(`[gmail-sync] Sync complete: ${newDocuments} new docs | ${messageIds.length} candidates | ${processed} processed | ${skippedNoMatch} no-match | ${skippedDuplicate} dupes${quickScan ? " (quick scan)" : ""}`);
   return { newDocuments };
 }
 
