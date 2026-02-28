@@ -60,6 +60,7 @@ const statusConfig: Record<string, { label: string; className: string; icon: typ
   sent: { label: "נשלח", className: "bg-success/10 text-success", icon: Check },
   pending: { label: "ממתין", className: "bg-warning/10 text-warning", icon: Clock },
   review: { label: "לבדיקה", className: "bg-coral-light text-coral", icon: AlertTriangle },
+  ignored: { label: "התעלם", className: "bg-muted text-muted-foreground", icon: X },
 };
 
 const sourceIcons: Record<string, string> = {
@@ -290,11 +291,13 @@ const DashboardPage = () => {
 
   const filteredDocuments = useMemo(() => {
     const docs = documentsQuery.data?.documents ?? [];
+    // Filter out ignored documents by default
+    const nonIgnored = docs.filter((doc) => doc.status !== "ignored");
     const term = searchTerm.trim().toLowerCase();
     if (!term) {
-      return docs;
+      return nonIgnored;
     }
-    return docs.filter((doc) => doc.vendor.toLowerCase().includes(term) || doc.category.toLowerCase().includes(term));
+    return nonIgnored.filter((doc) => doc.vendor.toLowerCase().includes(term) || doc.category.toLowerCase().includes(term));
   }, [documentsQuery.data?.documents, searchTerm]);
 
   if (!businessId) {
@@ -534,6 +537,30 @@ const DashboardPage = () => {
                           <span className={`px-2 py-1 rounded-md text-xs font-medium ${status.className}`}>
                             {status.label}
                           </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (confirm("התעלם ממסמך זה? הוא יסומן כ'לא רלוונטי' ולא יישלח לרואה החשבון.")) {
+                                try {
+                                  await updateDocument(businessId as string, doc.id, { status: "ignored" });
+                                  queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+                                  toast({ title: "המסמך סומן כמתעלם" });
+                                } catch (error) {
+                                  toast({
+                                    title: "שגיאה",
+                                    description: "לא הצלחנו לעדכן את המסמך",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }
+                            }}
+                            title="התעלם ממסמך זה"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedDocumentId(doc.id)}>
                             <Eye className="w-4 h-4" />
                           </Button>
