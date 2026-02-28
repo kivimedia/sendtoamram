@@ -33,7 +33,7 @@ import {
   signupBusinessOwner,
   startOnboarding,
 } from "@/lib/api";
-import { getActiveBusinessId, getAuthToken, setActiveBusinessId, setAuthToken } from "@/lib/session";
+import { clearActiveBusinessId, getActiveBusinessId, getAuthToken, setActiveBusinessId, setAuthToken } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { ScanProgressBars } from "@/components/DeepScanProgress";
@@ -139,9 +139,13 @@ const OnboardingPage = () => {
           }
         })
         .catch((error) => {
+          // Stale business ID (deleted or DB reset) - clear it and restart fresh
+          clearActiveBusinessId();
+          setBusinessId(null);
+          setStep(0);
           toast({
             title: "טעינת מצב נכשלה",
-            description: error instanceof Error ? error.message : "לא הצלחנו לטעון את מצב ההתחברות.",
+            description: "מתחילים מחדש. אנא הזינו את פרטי רואה החשבון.",
             variant: "destructive",
           });
         });
