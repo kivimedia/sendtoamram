@@ -304,6 +304,11 @@ const DashboardPage = () => {
     return <Navigate to="/onboarding" replace />;
   }
 
+  // If billing loaded and user hasn't paid, redirect to onboarding to see offer
+  if (!summaryQuery.isLoading && billing && !billing.onboardingPaid && billing.subscriptionStatus !== "active") {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   const stats = summary
     ? [
         {

@@ -87,12 +87,30 @@ const OnboardingPage = () => {
 
   const displayName = accountantName || "עמרם";
 
-  // If already logged in with a token, go straight to dashboard
+  // If already logged in with a token, check billing before deciding where to go
   useEffect(() => {
     const token = getAuthToken();
     const bid = getActiveBusinessId();
     if (token && bid && step === 0) {
-      navigate("/dashboard");
+      getBillingStatus(bid)
+        .then((billing) => {
+          if (billing.billingEnabled && !billing.onboardingPaid) {
+            // Not paid - load onboarding state and show quick scan / offer
+            setBusinessId(bid);
+            loadOnboardingState(bid).then(() => {
+              handleQuickScan();
+            }).catch(() => {
+              // If state load fails, show payment step directly
+              setStep(4);
+            });
+          } else {
+            navigate("/dashboard");
+          }
+        })
+        .catch(() => {
+          // billing check failed - go to dashboard as fallback
+          navigate("/dashboard");
+        });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -704,7 +722,18 @@ const OnboardingPage = () => {
                             setAuthToken(result.token);
                             setActiveBusinessId(result.businessId);
                             setBusinessId(result.businessId);
-                            // Go straight to dashboard for returning users
+                            // Check billing - if not paid, show offer instead of dashboard
+                            try {
+                              const billing = await getBillingStatus(result.businessId);
+                              if (billing.billingEnabled && !billing.onboardingPaid) {
+                                // Not paid yet - load state and show quick scan / offer
+                                await loadOnboardingState(result.businessId);
+                                handleQuickScan();
+                                return;
+                              }
+                            } catch {
+                              // billing check failed - still go to dashboard
+                            }
                             navigate("/dashboard");
                           } catch (error) {
                             toast({

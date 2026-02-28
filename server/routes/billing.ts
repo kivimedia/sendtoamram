@@ -54,19 +54,19 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
         return { alreadyPaid: true };
       }
 
-      // Get or create Stripe customer
-      let customerId = billing.stripeCustomerId;
-      if (!customerId) {
-        const customer = await stripe.customers.create({
-          metadata: { businessId },
-        });
-        customerId = customer.id;
-        await store.updateBusinessBilling(businessId, { stripeCustomerId: customerId });
-      }
-
       const baseUrl = env.FRONTEND_BASE_URL;
 
       try {
+        // Get or create Stripe customer
+        let customerId = billing.stripeCustomerId;
+        if (!customerId) {
+          const customer = await stripe.customers.create({
+            metadata: { businessId },
+          });
+          customerId = customer.id;
+          await store.updateBusinessBilling(businessId, { stripeCustomerId: customerId });
+        }
+
         // Pre-create an invoice item for the one-time setup fee
         // This gets added to the subscription's first invoice automatically
         await stripe.invoiceItems.create({
