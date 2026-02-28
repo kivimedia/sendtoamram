@@ -23,7 +23,7 @@ const envSchema = z.object({
   WHATSAPP_TEMPLATE_NAME: z.string().optional(),
   WHATSAPP_TEMPLATE_LANG: z.string().default("en_US"),
   RESEND_API_KEY: z.string().optional(),
-  RESEND_FROM_EMAIL: z.string().default("SendToAmram <noreply@sendtoamram.co.il>"),
+  RESEND_FROM_EMAIL: z.string().default("SendToAmram <amram@sendtoamram.co.il>"),
   ANTHROPIC_API_KEY: z.string().optional(),
   AI_MODEL_EXPENSIVE: z.string().default("claude-sonnet-4-20250514"),
   AI_MODEL_CHEAP: z.string().default("claude-haiku-4-5-20251001"),
