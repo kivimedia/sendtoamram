@@ -182,7 +182,7 @@ export class AppStorePg {
     accountantName?: string;
     accountantEmail?: string;
   }) {
-    const email = normalizeEmail(payload.email ?? "demo@sendtoamram.co.il");
+    const email = normalizeEmail(payload.email ?? `anon-${randomUUID()}@sendtoamram.co.il`);
     const accountantName = payload.accountantName?.trim() || "עמרם";
     const accountantEmail = payload.accountantEmail?.trim() || undefined;
 

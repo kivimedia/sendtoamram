@@ -538,12 +538,12 @@ const OnboardingPage = () => {
                           handleQuickScan();
                           return;
                         } catch (loginError) {
+                          // Wrong password - skip signup and proceed to scan anyway
                           toast({
-                            title: "התחברות נכשלה",
-                            description: loginError instanceof Error ? loginError.message : "סיסמה שגויה.",
-                            variant: "destructive",
+                            title: "ממשיכים בלי חשבון",
+                            description: "תוכל ליצור חשבון מאוחר יותר מההגדרות.",
                           });
-                          setIsSigningUp(false);
+                          handleQuickScan();
                           return;
                         }
                       }
