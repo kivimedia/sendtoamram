@@ -1,7 +1,7 @@
 import { env } from "../config";
 import { store } from "../store";
 import { getValidAccessToken } from "./oauth";
-import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, type VendorCategoryMapping } from "./ai";
+import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, classifyEmailBatch, type VendorCategoryMapping, type EmailCandidate, type ClassificationResult } from "./ai";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -76,6 +76,227 @@ async function fetchRecentMessageIds(accessToken: string, maxResults: number, af
   return ids;
 }
 
+// ─── Quick scan: targeted queries for real invoices ───
+
+async function fetchQuickScanCandidates(accessToken: string, afterDate: Date): Promise<string[]> {
+  const y = afterDate.getFullYear();
+  const m = String(afterDate.getMonth() + 1).padStart(2, "0");
+  const d = String(afterDate.getDate()).padStart(2, "0");
+  const datePrefix = `after:${y}/${m}/${d}`;
+
+  // Query A: direct invoice/receipt keywords + document attachment (high signal)
+  const queryA = `${datePrefix} subject:(חשבונית OR invoice OR receipt OR קבלה OR חשבון) filename:(pdf OR xlsx OR csv)`;
+  // Query B: billing/payment/subscription keywords (medium signal)
+  const queryB = `${datePrefix} subject:("חשבונית מס" OR "tax invoice" OR קבלה OR "אישור תשלום" OR "payment confirmation" OR billing OR subscription OR "receipt from" OR "purchase confirmation" OR "order confirmation" OR "renewal confirmation" OR "payment successful" OR "הזמנה" OR "sales receipt") -category:promotions -category:social`;
+
+  const idSet = new Set<string>();
+
+  for (const q of [queryA, queryB]) {
+    try {
+      const data: GmailListResponse = await gmailFetch(
+        accessToken,
+        `/messages?maxResults=100&q=${encodeURIComponent(q)}`,
+      );
+      for (const msg of data.messages ?? []) idSet.add(msg.id);
+    } catch (err: any) {
+      console.error(`[gmail-sync] Quick scan query failed: ${err.message}`);
+    }
+  }
+
+  console.log(`[gmail-sync] Quick scan candidates: ${idSet.size} unique IDs from targeted queries`);
+  return [...idSet].slice(0, 200);
+}
+
+interface GmailMetadataMessage {
+  id: string;
+  snippet: string;
+  payload: {
+    headers: Array<{ name: string; value: string }>;
+    parts?: Array<{ filename?: string; mimeType: string }>;
+  };
+  internalDate: string;
+}
+
+async function fetchGmailMessageMetadata(accessToken: string, messageId: string): Promise<GmailMetadataMessage> {
+  return gmailFetch(
+    accessToken,
+    `/messages/${messageId}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+  );
+}
+
+// ─── AI-powered quick scan ───
+
+export async function quickScanWithAI(
+  inboxConnectionId: string,
+): Promise<{ newDocuments: number; candidates: number; aiConfirmed: number }> {
+  const inbox = await store.getInboxConnection(inboxConnectionId);
+  if (!inbox || !inbox.oauthConnectionId) {
+    throw new Error("No OAuth connection for this inbox");
+  }
+
+  const hasActiveScan = await store.hasActiveScanForInbox(inboxConnectionId);
+  if (hasActiveScan) {
+    console.log(`[gmail-sync] Skipping quick scan for inbox ${inboxConnectionId}: deep scan active`);
+    return { newDocuments: 0, candidates: 0, aiConfirmed: 0 };
+  }
+
+  const oauth = await store.getOAuthConnection(inbox.oauthConnectionId);
+  if (!oauth) throw new Error("OAuth connection not found");
+
+  const accessToken = await getValidAccessToken(oauth, store, env);
+
+  // Step 1: Fetch candidate IDs with targeted queries
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+  const candidateIds = await fetchQuickScanCandidates(accessToken, threeMonthsAgo);
+
+  if (candidateIds.length === 0) {
+    console.log(`[gmail-sync] Quick scan: 0 candidates found for inbox ${inboxConnectionId}`);
+    try {
+      const latestHistoryId = await getLatestHistoryId(accessToken);
+      await store.updateInboxSyncCursor(inboxConnectionId, latestHistoryId);
+    } catch { /* ignore */ }
+    return { newDocuments: 0, candidates: 0, aiConfirmed: 0 };
+  }
+
+  // Step 2: Fetch first 30 messages (metadata only) in parallel batches
+  const METADATA_BATCH = 30;
+  const idsToFetch = candidateIds.slice(0, METADATA_BATCH);
+  const metadataResults = await Promise.all(
+    idsToFetch.map(async (id) => {
+      try {
+        return await fetchGmailMessageMetadata(accessToken, id);
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const metadataMessages = metadataResults.filter((m): m is GmailMetadataMessage => m !== null);
+
+  // Step 3: Build EmailCandidate array for AI classification
+  const emailCandidates: EmailCandidate[] = metadataMessages.map((msg, i) => {
+    const headers = Object.fromEntries(
+      msg.payload.headers.map((h) => [h.name.toLowerCase(), h.value]),
+    );
+    const attachmentNames = (msg.payload.parts ?? [])
+      .filter((p) => p.filename && p.filename.length > 0)
+      .map((p) => p.filename!);
+
+    return {
+      index: i,
+      subject: headers["subject"] ?? "",
+      from: headers["from"] ?? "",
+      snippet: msg.snippet ?? "",
+      date: headers["date"] ?? new Date(parseInt(msg.internalDate)).toISOString().slice(0, 10),
+      hasAttachment: attachmentNames.length > 0,
+      attachmentNames,
+    };
+  });
+
+  // Step 4: AI batch classification (single Haiku call)
+  console.log(`[gmail-sync] Quick scan: classifying ${emailCandidates.length} emails with AI...`);
+  let classifications: ClassificationResult[];
+  try {
+    classifications = await classifyEmailBatch(inbox.businessId, emailCandidates);
+  } catch (err: any) {
+    console.error(`[gmail-sync] AI classification failed: ${err.message}`);
+    // Fallback: return 0 rather than garbage results
+    return { newDocuments: 0, candidates: candidateIds.length, aiConfirmed: 0 };
+  }
+
+  const confirmed = classifications.filter((c) => c.isInvoice && c.confidence >= 0.5);
+  console.log(`[gmail-sync] Quick scan: AI confirmed ${confirmed.length} invoices out of ${emailCandidates.length} candidates`);
+
+  // Step 5: Fetch full messages for confirmed invoices and extract real amounts
+  let newDocuments = 0;
+  const MAX_DOCS = 5;
+
+  for (const classification of confirmed) {
+    if (newDocuments >= MAX_DOCS) break;
+
+    const metaMsg = metadataMessages[classification.index];
+    if (!metaMsg) continue;
+
+    // Check for duplicates
+    if (await store.hasDocumentForGmailMessage(inbox.businessId, metaMsg.id)) continue;
+
+    const headers = Object.fromEntries(
+      metaMsg.payload.headers.map((h) => [h.name.toLowerCase(), h.value]),
+    );
+    const date = new Date(parseInt(metaMsg.internalDate));
+
+    // Fetch full message to get body text with real amounts
+    let amountCents = classification.amountCents || 0;
+    let currency = classification.currency || "ILS";
+    let rawText: string | null = metaMsg.snippet?.substring(0, 2000) ?? null;
+    let attachmentFilenames: string[] = (metaMsg.payload.parts ?? [])
+      .filter((p) => p.filename && p.filename.length > 0)
+      .map((p) => p.filename!);
+
+    try {
+      const fullMessage = await fetchGmailMessage(accessToken, metaMsg.id);
+      const bodyText = extractPlainText(fullMessage);
+      if (bodyText) rawText = bodyText.substring(0, 2000);
+
+      // Extract real amount from subject + snippet + body text
+      const searchText = (headers["subject"] ?? "") + " " + (metaMsg.snippet ?? "") + " " + (bodyText?.substring(0, 2000) ?? "");
+      const extracted = extractAmountFromText(searchText);
+      if (extracted.amountCents > 0) {
+        amountCents = extracted.amountCents;
+        currency = extracted.currency;
+      }
+
+      // Update attachment filenames from full message (more accurate)
+      attachmentFilenames = (fullMessage.payload.parts ?? [])
+        .filter((p: any) => p.filename && p.filename.length > 0)
+        .map((p: any) => p.filename!);
+    } catch (err: any) {
+      console.warn(`[gmail-sync] Could not fetch full message ${metaMsg.id}: ${err.message}`);
+      // Continue with metadata-only data
+    }
+
+    // Skip invoices where we couldn't extract a real amount — don't show $0 junk in preview
+    if (amountCents === 0) {
+      console.log(`[gmail-sync] Quick scan: skipping ${classification.vendorName || "unknown"} — no amount found in email body`);
+      continue;
+    }
+
+    const vendorName = classification.vendorName || headers["from"]?.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() || "Unknown";
+
+    await store.createDocument({
+      businessId: inbox.businessId,
+      inboxConnectionId: inbox.id,
+      source: "EMAIL",
+      type: classification.type || "INVOICE",
+      status: "PENDING",
+      vendorName,
+      amountCents,
+      currency,
+      vatCents: amountCents > 0 && currency === "ILS" ? Math.floor(amountCents * 0.17) : null,
+      issuedAt: date.toISOString(),
+      confidence: classification.confidence,
+      category: classification.category || null,
+      rawText,
+      gmailMessageId: metaMsg.id,
+    });
+    newDocuments++;
+    console.log(`[gmail-sync] Quick scan: created doc for ${vendorName} — ${currency} ${amountCents / 100}`);
+  }
+
+  // Update sync cursor
+  try {
+    const latestHistoryId = await getLatestHistoryId(accessToken);
+    await store.updateInboxSyncCursor(inboxConnectionId, latestHistoryId);
+  } catch (error) {
+    console.error("[gmail-sync] Failed to update history cursor:", error);
+  }
+
+  console.log(`[gmail-sync] Quick scan complete: ${newDocuments} new docs, ${candidateIds.length} candidates, ${confirmed.length} AI-confirmed`);
+  return { newDocuments, candidates: candidateIds.length, aiConfirmed: confirmed.length };
+}
+
+// ─── History-based incremental sync ───
+
 async function fetchNewMessageIdsSinceHistory(
   accessToken: string,
   startHistoryId: string,
@@ -133,6 +354,32 @@ interface AttachmentInfo {
 export async function getLatestHistoryId(accessToken: string): Promise<string> {
   const profile = await gmailFetch(accessToken, "/profile");
   return profile.historyId;
+}
+
+// ─── Amount extraction helper (shared by quick scan + full sync) ───
+
+function extractAmountFromText(text: string): { amountCents: number; currency: string } {
+  const amountPatterns: Array<{ re: RegExp; cur: string }> = [
+    { re: /(?:₪|ILS|NIS)\s*([\d,]+\.?\d*)/, cur: "ILS" },
+    { re: /([\d,]+\.?\d*)\s*(?:₪|ILS|NIS)/, cur: "ILS" },
+    { re: /\$\s*([\d,]+\.?\d*)/, cur: "USD" },
+    { re: /([\d,]+\.?\d*)\s*USD/i, cur: "USD" },
+    { re: /€\s*([\d,]+\.?\d*)/, cur: "EUR" },
+    { re: /([\d,]+\.?\d*)\s*EUR/i, cur: "EUR" },
+    { re: /סה"כ[:\s]*([\d,]+\.?\d*)/, cur: "ILS" },
+    { re: /total[:\s]*([\d,]+\.?\d*)/i, cur: "ILS" },
+  ];
+  for (const { re, cur } of amountPatterns) {
+    const match = text.match(re);
+    if (match) {
+      const raw = (match[1] ?? match[2] ?? "").replace(/,/g, "");
+      const val = parseFloat(raw);
+      if (val > 0 && val < 1_000_000) {
+        return { amountCents: Math.round(val * 100), currency: cur };
+      }
+    }
+  }
+  return { amountCents: 0, currency: "ILS" };
 }
 
 // ─── Email → Document extraction ───
@@ -201,9 +448,16 @@ export function extractDocumentFromEmail(
        p.filename.endsWith(".xlsx") || p.filename.endsWith(".csv")),
   );
 
-  // Accept emails that have invoice signals OR attachments
+  // Accept emails that have invoice signals OR relevant attachments
   if (!hasInvoiceSignal && !hasAttachment) {
     return null;
+  }
+  // Attachment-only (no subject keyword): require invoice-like filename
+  if (!hasInvoiceSignal && hasAttachment) {
+    const hasInvoiceFilename = message.payload.parts?.some(
+      (p) => p.filename && /invoice|חשבונית|receipt|קבלה|bill|חשבון/i.test(p.filename),
+    );
+    if (!hasInvoiceFilename) return null;
   }
 
   const bodyText = extractPlainText(message);
@@ -214,15 +468,9 @@ export function extractDocumentFromEmail(
   else if (/subscription|מנוי/.test(lowerSubject)) type = "SUBSCRIPTION";
   else if (/confirmation|אישור/.test(lowerSubject)) type = "PAYMENT_CONFIRMATION";
 
-  // Try to extract amount from subject or snippet (basic regex)
-  let amountCents = 0;
-  const amountMatch = (subject + " " + (message.snippet ?? "")).match(
-    /(?:₪|ILS|NIS)\s*([\d,]+\.?\d*)|(\d[\d,]*\.?\d*)\s*(?:₪|ILS|NIS)/,
-  );
-  if (amountMatch) {
-    const raw = (amountMatch[1] ?? amountMatch[2]).replace(/,/g, "");
-    amountCents = Math.round(parseFloat(raw) * 100);
-  }
+  // Try to extract amount from subject, snippet, and body (multi-currency)
+  const searchText = subject + " " + (message.snippet ?? "") + " " + (bodyText?.substring(0, 1000) ?? "");
+  const { amountCents, currency } = extractAmountFromText(searchText);
 
   // Collect downloadable attachments
   const attachments: AttachmentInfo[] = [];
@@ -249,8 +497,8 @@ export function extractDocumentFromEmail(
     status: "PENDING",
     vendorName,
     amountCents,
-    currency: "ILS",
-    vatCents: amountCents > 0 ? Math.floor(amountCents * 0.17) : null,
+    currency,
+    vatCents: amountCents > 0 && currency === "ILS" ? Math.floor(amountCents * 0.17) : null,
     issuedAt: date.toISOString(),
     confidence: hasInvoiceSignal && hasAttachment ? 0.85 : hasInvoiceSignal ? 0.65 : 0.45,
     category: null,

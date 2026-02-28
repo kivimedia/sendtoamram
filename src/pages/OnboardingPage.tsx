@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
   CreditCard,
   FileText,
   Loader2,
@@ -13,6 +14,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,15 +30,16 @@ import {
   getDeepScanStatus,
   getOnboardingState,
   runInitialScan,
+  signupBusinessOwner,
   startOnboarding,
 } from "@/lib/api";
-import { getActiveBusinessId, setActiveBusinessId } from "@/lib/session";
+import { getActiveBusinessId, getAuthToken, setActiveBusinessId, setAuthToken } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { ScanProgressBars } from "@/components/DeepScanProgress";
 import { getOAuthStartUrl } from "@/lib/api";
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 5;
 
 const providers: Array<{
   id: InboxProvider;
@@ -64,6 +67,11 @@ const OnboardingPage = () => {
     totalAmountCents: number;
     previewDocs: DashboardDocument[];
   } | null>(null);
+  const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupFullName, setSignupFullName] = useState("");
+  const [isSigningUp, setIsSigningUp] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -75,11 +83,11 @@ const OnboardingPage = () => {
     exit: { x: 50, opacity: 0 },
   };
 
-  // Poll deep scan status when on step 4
+  // Poll deep scan status when on step 5
   const scanStatusQuery = useQuery<DeepScanStatus>({
     queryKey: ["deep-scan", "status", businessId],
     queryFn: () => getDeepScanStatus(businessId!),
-    enabled: step === 4 && Boolean(businessId),
+    enabled: step === 5 && Boolean(businessId),
     refetchInterval: (query) => {
       const data = query.state.data;
       // Keep polling while active, or if no scan started yet (webhook may not have fired)
@@ -88,11 +96,11 @@ const OnboardingPage = () => {
     },
   });
 
-  // Auto-advance from step 4 to step 5 when scan completes
+  // Auto-advance from step 5 to step 6 when scan completes
   useEffect(() => {
     const data = scanStatusQuery.data;
-    if (step === 4 && data?.status === "COMPLETED") {
-      setTimeout(() => setStep(5), 1000);
+    if (step === 5 && data?.status === "COMPLETED") {
+      setTimeout(() => setStep(6), 1000);
     }
   }, [scanStatusQuery.data?.status, step]);
 
@@ -125,7 +133,7 @@ const OnboardingPage = () => {
           // Determine which step to show based on state
           if (paymentStatus === "success") {
             // Just paid — go to deep scan progress
-            setStep(4);
+            setStep(5);
           } else if (state.connectedInboxes.length > 0) {
             setStep(1);
           }
@@ -160,7 +168,7 @@ const OnboardingPage = () => {
         description: "אפשר לנסות שוב בכל עת.",
         variant: "destructive",
       });
-      setStep(3);
+      setStep(4);
     }
 
     if (oauthStatus || callbackBusinessId || provider || message || paymentStatus) {
@@ -236,7 +244,7 @@ const OnboardingPage = () => {
       const response = await createCheckoutSession(businessId);
       if (response.alreadyPaid) {
         // Already paid — skip to deep scan progress
-        setStep(4);
+        setStep(5);
         return;
       }
       if (response.checkoutUrl) {
@@ -271,7 +279,7 @@ const OnboardingPage = () => {
         totalAmountCents: result.totalAmountCents,
         previewDocs,
       });
-      setStep(2);
+      setStep(3);
     } catch (error) {
       toast({
         title: "הסריקה נכשלה",
@@ -432,16 +440,102 @@ const OnboardingPage = () => {
                 <Button
                   variant="coral"
                   className="flex-1 h-12"
-                  onClick={handleQuickScan}
-                  disabled={connectedInboxes.length === 0 || isQuickScanning}
+                  onClick={() => {
+                    // Pre-fill signup email from first connected inbox
+                    if (connectedInboxes.length > 0 && !signupEmail) {
+                      setSignupEmail(connectedInboxes[0].email);
+                    }
+                    setStep(2);
+                  }}
+                  disabled={connectedInboxes.length === 0}
                 >
-                  {isQuickScanning ? (
+                  המשך <ArrowLeft className="w-4 h-4" />
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── Step 2: Create Account ── */}
+          {step === 2 && (
+            <motion.div
+              key="step2-signup"
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3 }}
+              className="bg-card rounded-2xl p-8 md:p-10 shadow-elevated border border-border"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-coral-light flex items-center justify-center mb-6">
+                <UserPlus className="w-8 h-8 text-coral" />
+              </div>
+              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                צור חשבון
+              </h1>
+              <p className="text-muted-foreground mb-8">
+                כדי לשמור את הנתונים שלך ולגשת מכל מכשיר.
+              </p>
+              <Input
+                placeholder="שם מלא (לא חובה)"
+                value={signupFullName}
+                onChange={(e) => setSignupFullName(e.target.value)}
+                className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+              />
+              <Input
+                type="email"
+                placeholder="כתובת מייל"
+                value={signupEmail}
+                onChange={(e) => setSignupEmail(e.target.value)}
+                className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+                dir="ltr"
+              />
+              <Input
+                type="password"
+                placeholder="סיסמה (לפחות 8 תווים)"
+                value={signupPassword}
+                onChange={(e) => setSignupPassword(e.target.value)}
+                className="h-14 text-lg rounded-xl mb-6 border-border focus:border-coral focus:ring-coral"
+                dir="ltr"
+              />
+
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => setStep(1)} className="h-12">
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="coral"
+                  className="flex-1 h-12"
+                  onClick={async () => {
+                    if (!businessId) return;
+                    setIsSigningUp(true);
+                    try {
+                      const result = await signupBusinessOwner({
+                        businessId,
+                        email: signupEmail,
+                        password: signupPassword,
+                        fullName: signupFullName || undefined,
+                      });
+                      setAuthToken(result.token);
+                      // Immediately run quick scan after signup
+                      handleQuickScan();
+                    } catch (error) {
+                      toast({
+                        title: "יצירת חשבון נכשלה",
+                        description: error instanceof Error ? error.message : "שגיאה ביצירת החשבון.",
+                        variant: "destructive",
+                      });
+                      setIsSigningUp(false);
+                    }
+                  }}
+                  disabled={isSigningUp || !signupEmail || signupPassword.length < 8}
+                >
+                  {isSigningUp || isQuickScanning ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> סורק את התיבה...
+                      <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : "יוצר חשבון..."}
                     </>
                   ) : (
                     <>
-                      סרוק והמשך <ArrowLeft className="w-4 h-4" />
+                      צור חשבון וסרוק <ArrowLeft className="w-4 h-4" />
                     </>
                   )}
                 </Button>
@@ -449,8 +543,8 @@ const OnboardingPage = () => {
             </motion.div>
           )}
 
-          {/* ── Step 2: Quick Scan Preview ── */}
-          {step === 2 && (
+          {/* ── Step 3: Quick Scan Preview ── */}
+          {step === 3 && (
             <motion.div
               key="step2"
               variants={slideVariants}
@@ -478,29 +572,63 @@ const OnboardingPage = () => {
               {/* Preview document list */}
               {quickScanResult && quickScanResult.previewDocs.length > 0 && (
                 <div className="space-y-2 mb-6">
-                  {quickScanResult.previewDocs.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between p-3 rounded-xl border border-border bg-secondary/50"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-coral-light flex items-center justify-center flex-shrink-0">
-                          <FileText className="w-4 h-4 text-coral" />
+                  {quickScanResult.previewDocs.map((doc) => {
+                    const isExpanded = expandedDocId === doc.id;
+                    const currencySymbol = doc.currency === "ILS" ? "₪" : doc.currency === "EUR" ? "€" : "$";
+                    const typeLabels: Record<string, string> = {
+                      INVOICE: "חשבונית",
+                      RECEIPT: "קבלה",
+                      SUBSCRIPTION: "מנוי",
+                      PAYMENT_CONFIRMATION: "אישור תשלום",
+                    };
+                    return (
+                      <div
+                        key={doc.id}
+                        className="rounded-xl border border-border bg-secondary/50 cursor-pointer transition-all hover:bg-secondary/80"
+                        onClick={() => setExpandedDocId(isExpanded ? null : doc.id)}
+                      >
+                        <div className="flex items-center justify-between p-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-coral-light flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-coral" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{doc.vendor}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(doc.issuedAt).toLocaleDateString("he-IL")}
+                                {doc.category ? ` · ${doc.category}` : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground whitespace-nowrap" dir="ltr">
+                              {currencySymbol}
+                              {(doc.amountCents / 100).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </span>
+                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{doc.vendor}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(doc.issuedAt).toLocaleDateString("he-IL")}
-                            {doc.category ? ` · ${doc.category}` : ""}
-                          </p>
-                        </div>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 border-t border-border/50">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+                              <div className="text-muted-foreground">
+                                סוג: <span className="text-foreground font-medium">{typeLabels[doc.type ?? ""] ?? doc.type ?? "חשבונית"}</span>
+                              </div>
+                              <div className="text-muted-foreground">
+                                ביטחון: <span className="text-foreground font-medium">{Math.round((doc.confidence ?? 0) * 100)}%</span>
+                              </div>
+                              <div className="text-muted-foreground">
+                                מקור: <span className="text-foreground font-medium">{doc.source === "email" ? "מייל" : "וואטסאפ"}</span>
+                              </div>
+                              <div className="text-muted-foreground">
+                                ספק: <span className="text-foreground font-medium">{doc.provider}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <span className="text-sm font-semibold text-foreground whitespace-nowrap mr-2" dir="ltr">
-                        {doc.currency === "ILS" ? "₪" : "$"}
-                        {(doc.amountCents / 100).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -517,19 +645,19 @@ const OnboardingPage = () => {
               <Button
                 variant="hero"
                 className="w-full h-12 mb-3"
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
               >
                 הפעל סריקה עמוקה <ArrowLeft className="w-5 h-5" />
               </Button>
 
-              <Button variant="outline" className="w-full h-10" onClick={() => setStep(1)}>
+              <Button variant="outline" className="w-full h-10" onClick={() => setStep(2)}>
                 <ArrowRight className="w-4 h-4" /> חזור
               </Button>
             </motion.div>
           )}
 
-          {/* ── Step 3: Deep Scan Pitch + Payment ── */}
-          {step === 3 && (
+          {/* ── Step 4: Deep Scan Pitch + Payment ── */}
+          {step === 4 && (
             <motion.div
               key="step3"
               variants={slideVariants}
@@ -573,12 +701,12 @@ const OnboardingPage = () => {
               {/* Pricing card */}
               <div className="bg-secondary rounded-xl p-5 mb-4 border border-border">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-display font-bold text-lg text-foreground">$13 <span className="text-sm font-normal text-muted-foreground">(כ-₪40)</span></span>
                   <span className="text-sm text-muted-foreground">דמי הקמה חד-פעמיים</span>
+                  <span className="font-display font-bold text-lg text-foreground" dir="ltr">$13 <span className="text-sm font-normal text-muted-foreground">(כ-₪40)</span></span>
                 </div>
                 <div className="flex items-center justify-between mb-3">
-                  <span className="font-display font-bold text-lg text-foreground">$7/חודש <span className="text-sm font-normal text-muted-foreground">(כ-₪22)</span></span>
                   <span className="text-sm text-muted-foreground">מנוי חודשי</span>
+                  <span className="font-display font-bold text-lg text-foreground" dir="ltr">$7/חודש <span className="text-sm font-normal text-muted-foreground">(כ-₪22)</span></span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-success">
                   <ShieldCheck className="w-4 h-4" />
@@ -603,14 +731,14 @@ const OnboardingPage = () => {
                 )}
               </Button>
 
-              <Button variant="outline" className="w-full h-10" onClick={() => setStep(2)}>
+              <Button variant="outline" className="w-full h-10" onClick={() => setStep(3)}>
                 <ArrowRight className="w-4 h-4" /> חזור
               </Button>
             </motion.div>
           )}
 
-          {/* ── Step 4: Deep Scan Progress ── */}
-          {step === 4 && (
+          {/* ── Step 5: Deep Scan Progress ── */}
+          {step === 5 && (
             <motion.div
               key="step4"
               variants={slideVariants}
@@ -672,8 +800,8 @@ const OnboardingPage = () => {
             </motion.div>
           )}
 
-          {/* ── Step 5: Results ── */}
-          {step === 5 && (
+          {/* ── Step 6: Results ── */}
+          {step === 6 && (
             <motion.div
               key="step5"
               variants={slideVariants}

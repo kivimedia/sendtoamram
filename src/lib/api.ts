@@ -490,3 +490,34 @@ export function createBillingPortal(
 ): Promise<{ portalUrl: string }> {
   return apiRequest(`/billing/${businessId}/portal`, { method: "POST" });
 }
+
+// ─── Auth ───
+
+export interface AuthResponse {
+  token: string;
+  userId: string;
+  businessId: string;
+  email: string;
+}
+
+export function signupBusinessOwner(payload: {
+  businessId: string;
+  email: string;
+  password: string;
+  fullName?: string;
+}): Promise<AuthResponse> {
+  return apiRequest("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function loginBusinessOwner(payload: {
+  email: string;
+  password: string;
+}): Promise<AuthResponse> {
+  return apiRequest("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

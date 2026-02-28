@@ -11,6 +11,7 @@ import { registerWhatsAppRoutes } from "./routes/whatsapp";
 import { registerDeepScanRoutes } from "./routes/deep-scan";
 import { registerBillingRoutes, registerStripeWebhook } from "./routes/billing";
 import { registerAccountantRoutes } from "./routes/accountant";
+import { registerAuthRoutes } from "./routes/auth";
 
 export async function createServer() {
   const app = Fastify({
@@ -79,6 +80,7 @@ export async function createServer() {
     await registerDeepScanRoutes(api);
     await registerBillingRoutes(api);
     await registerAccountantRoutes(api);
+    await registerAuthRoutes(api);
   }, { prefix: "/api" });
 
   // Stripe webhook — registered at /api/webhooks/stripe (outside api prefix group for raw body)

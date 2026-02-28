@@ -35,6 +35,7 @@ writeFileSync(
       handler: "index.mjs",
       runtime: "nodejs20.x",
       launcherType: "Nodejs",
+      maxDuration: 60,
     },
     null,
     2,

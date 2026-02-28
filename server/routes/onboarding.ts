@@ -1,7 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { store } from "../store";
-import { syncGmailInbox } from "../services/gmail-sync";
+import { quickScanWithAI, syncGmailInbox } from "../services/gmail-sync";
+import { isAiEnabled } from "../services/ai";
 
 const startPayloadSchema = z.object({
   email: z.string().email().optional(),
@@ -46,13 +47,20 @@ export async function registerOnboardingRoutes(app: FastifyInstance): Promise<vo
     const body = scanPayloadSchema.parse(request.body);
 
     const gmailInboxes = await store.getGmailInboxes(body.businessId);
-    console.log(`[scan] Quick scan starting for business ${body.businessId} — ${gmailInboxes.length} Gmail inbox(es)`);
+    const useAi = isAiEnabled();
+    console.log(`[scan] Quick scan starting for business ${body.businessId} — ${gmailInboxes.length} Gmail inbox(es), AI=${useAi}`);
 
     for (const inbox of gmailInboxes) {
       try {
-        console.log(`[scan] Syncing inbox ${inbox.id} (${inbox.email})...`);
-        const result = await syncGmailInbox(inbox.id, { quickScan: true });
-        console.log(`[scan] Inbox ${inbox.email}: ${result.newDocuments} new documents`);
+        if (useAi) {
+          console.log(`[scan] AI-powered scan for inbox ${inbox.id} (${inbox.email})...`);
+          const result = await quickScanWithAI(inbox.id);
+          console.log(`[scan] Inbox ${inbox.email}: ${result.newDocuments} new docs (${result.candidates} candidates, ${result.aiConfirmed} AI-confirmed)`);
+        } else {
+          console.log(`[scan] Regex-only scan for inbox ${inbox.id} (${inbox.email})...`);
+          const result = await syncGmailInbox(inbox.id, { quickScan: true });
+          console.log(`[scan] Inbox ${inbox.email}: ${result.newDocuments} new documents`);
+        }
       } catch (error: any) {
         console.error(`[scan] Gmail sync FAILED for inbox ${inbox.id} (${inbox.email}):`, error?.message ?? error);
       }
@@ -62,4 +70,5 @@ export async function registerOnboardingRoutes(app: FastifyInstance): Promise<vo
     console.log(`[scan] Quick scan done: foundInvoices=${scanResult.foundInvoices}`);
     return scanResult;
   });
+
 }
