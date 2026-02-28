@@ -69,8 +69,8 @@ const sourceIcons: Record<string, string> = {
   whatsapp: "💬",
 };
 
-function formatAmount(cents: number): string {
-  if (cents === 0) return "ממתין לחילוץ";
+function formatAmount(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || cents === 0) return "ממתין לחילוץ";
   return `₪${(cents / 100).toLocaleString("he-IL", { maximumFractionDigits: 0 })}`;
 }
 
