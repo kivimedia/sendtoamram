@@ -22,18 +22,18 @@ const loginSchema = z.object({
 });
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
-  // Check if an email already has an account (has password set)
+  // Check if an email already has an account
   app.post("/auth/check-email", async (request) => {
     const body = z.object({ email: z.string().email() }).parse(request.body);
     const email = body.email.trim().toLowerCase();
     const result = await pool.query(
-      `SELECT id, password_hash IS NOT NULL AS has_account FROM users WHERE email = $1 LIMIT 1`,
+      `SELECT id, password_hash IS NOT NULL AS has_password FROM users WHERE email = $1 LIMIT 1`,
       [email],
     );
     if (result.rows.length === 0) {
-      return { exists: false, hasAccount: false };
+      return { exists: false, hasAccount: false, hasPassword: false };
     }
-    return { exists: true, hasAccount: result.rows[0].has_account };
+    return { exists: true, hasAccount: true, hasPassword: result.rows[0].has_password };
   });
 
   app.post("/auth/signup", async (request, reply) => {

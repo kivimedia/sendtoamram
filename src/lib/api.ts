@@ -504,7 +504,7 @@ export interface AuthResponse {
 
 export function checkEmailExists(
   email: string,
-): Promise<{ exists: boolean; hasAccount: boolean }> {
+): Promise<{ exists: boolean; hasAccount: boolean; hasPassword: boolean }> {
   return apiRequest("/auth/check-email", {
     method: "POST",
     body: JSON.stringify({ email }),

@@ -76,6 +76,7 @@ const OnboardingPage = () => {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupFullName, setSignupFullName] = useState("");
   const [isSigningUp, setIsSigningUp] = useState(false);
+  const [selectedLoginEmail, setSelectedLoginEmail] = useState<string>("");
   const [isReturningUser, setIsReturningUser] = useState(false);
   const [resetMode, setResetMode] = useState<"none" | "sent" | "verify">("none");
   const [resetCode, setResetCode] = useState("");
@@ -404,20 +405,49 @@ const OnboardingPage = () => {
               {/* Connected inboxes */}
               {connectedInboxes.length > 0 && (
                 <div className="space-y-2 mb-4">
-                  {connectedInboxes.map((inbox) => (
-                    <div
-                      key={inbox.id}
-                      className="flex items-center gap-3 p-3 rounded-xl border border-success bg-success/5"
-                    >
-                      <Check className="w-4 h-4 text-success flex-shrink-0" />
-                      <span className="text-sm font-medium text-foreground flex-1 text-right">
-                        {inbox.email}
-                      </span>
-                      <span className="text-xs text-success">
-                        {inbox.provider === "gmail" ? "Gmail" : "Outlook"}
-                      </span>
-                    </div>
-                  ))}
+                  {connectedInboxes.map((inbox) => {
+                    const isSelected = connectedInboxes.length > 1
+                      ? (selectedLoginEmail || connectedInboxes[0]?.email) === inbox.email
+                      : true;
+                    return (
+                      <div
+                        key={inbox.id}
+                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                          connectedInboxes.length > 1
+                            ? isSelected
+                              ? "border-coral bg-coral-light/30 cursor-pointer"
+                              : "border-success/30 bg-success/5 cursor-pointer hover:border-coral/50"
+                            : "border-success bg-success/5"
+                        }`}
+                        onClick={() => {
+                          if (connectedInboxes.length > 1) {
+                            setSelectedLoginEmail(inbox.email);
+                          }
+                        }}
+                      >
+                        {connectedInboxes.length > 1 ? (
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? "border-coral" : "border-muted-foreground/30"
+                          }`}>
+                            {isSelected && <div className="w-2 h-2 rounded-full bg-coral" />}
+                          </div>
+                        ) : (
+                          <Check className="w-4 h-4 text-success flex-shrink-0" />
+                        )}
+                        <span className="text-sm font-medium text-foreground flex-1 text-right">
+                          {inbox.email}
+                        </span>
+                        <span className={`text-xs ${isSelected && connectedInboxes.length > 1 ? "text-coral" : "text-success"}`}>
+                          {inbox.provider === "gmail" ? "Gmail" : "Outlook"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {connectedInboxes.length > 1 && (
+                    <p className="text-xs text-muted-foreground text-center mt-1">
+                      בחר את המייל שישמש להתחברות
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -460,18 +490,28 @@ const OnboardingPage = () => {
                   variant="coral"
                   className="flex-1 h-12"
                   onClick={async () => {
-                    // Use first connected inbox email as the login/signup email
-                    const inboxEmail = connectedInboxes[0]?.email ?? "";
+                    const inboxEmail = selectedLoginEmail || connectedInboxes[0]?.email ?? "";
                     if (inboxEmail) {
                       setSignupEmail(inboxEmail);
-                      // Check if this email already has an account
                       try {
                         const check = await checkEmailExists(inboxEmail);
-                        setIsReturningUser(check.hasAccount);
+                        if (check.hasPassword) {
+                          // Has password - show login
+                          setIsReturningUser(true);
+                          setStep(2);
+                          return;
+                        }
+                        if (check.exists) {
+                          // User exists but no password (OAuth only) - show "set password" signup
+                          setIsReturningUser(false);
+                          setStep(2);
+                          return;
+                        }
                       } catch {
-                        setIsReturningUser(false);
+                        // ignore - default to signup
                       }
                     }
+                    setIsReturningUser(false);
                     setStep(2);
                   }}
                   disabled={connectedInboxes.length === 0}
