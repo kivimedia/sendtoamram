@@ -78,6 +78,7 @@ const OnboardingPage = () => {
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [selectedLoginEmail, setSelectedLoginEmail] = useState<string>("");
   const [isReturningUser, setIsReturningUser] = useState(false);
+  const [needsPasswordOnly, setNeedsPasswordOnly] = useState(false);
   const [resetMode, setResetMode] = useState<"none" | "sent" | "verify">("none");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -496,14 +497,15 @@ const OnboardingPage = () => {
                       try {
                         const check = await checkEmailExists(inboxEmail);
                         if (check.hasPassword) {
-                          // Has password - show login
                           setIsReturningUser(true);
+                          setNeedsPasswordOnly(false);
                           setStep(2);
                           return;
                         }
                         if (check.exists) {
-                          // User exists but no password (OAuth only) - show "set password" signup
+                          // User exists via OAuth but no password yet
                           setIsReturningUser(false);
+                          setNeedsPasswordOnly(true);
                           setStep(2);
                           return;
                         }
@@ -512,6 +514,7 @@ const OnboardingPage = () => {
                       }
                     }
                     setIsReturningUser(false);
+                    setNeedsPasswordOnly(false);
                     setStep(2);
                   }}
                   disabled={connectedInboxes.length === 0}
@@ -603,18 +606,20 @@ const OnboardingPage = () => {
               ) : (
                 <>
                   <h1 className="font-display text-3xl font-bold text-foreground mb-3">
-                    {isReturningUser ? "ברוך הבא חזרה!" : "צור חשבון"}
+                    {isReturningUser ? "ברוך הבא חזרה!" : needsPasswordOnly ? "הגדר סיסמה" : "צור חשבון"}
                   </h1>
                   <p className="text-muted-foreground mb-2">
                     {isReturningUser
                       ? "זיהינו את המייל שלך. הזן סיסמה כדי להתחבר."
-                      : "כדי לשמור את הנתונים שלך ולגשת מכל מכשיר."}
+                      : needsPasswordOnly
+                        ? "הגדר סיסמה כדי להתחבר בפעם הבאה בלי Gmail."
+                        : "כדי לשמור את הנתונים שלך ולגשת מכל מכשיר."}
                   </p>
                   {signupEmail && (
                     <p className="text-sm text-muted-foreground mb-6 font-mono" dir="ltr">{signupEmail}</p>
                   )}
 
-                  {!isReturningUser && (
+                  {!isReturningUser && !needsPasswordOnly && (
                     <Input
                       placeholder="שם מלא (לא חובה)"
                       value={signupFullName}
@@ -622,7 +627,7 @@ const OnboardingPage = () => {
                       className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
                     />
                   )}
-                  {!isReturningUser && (
+                  {!isReturningUser && !needsPasswordOnly && (
                     <Input
                       type="email"
                       placeholder="כתובת מייל"
@@ -732,11 +737,15 @@ const OnboardingPage = () => {
                     >
                       {isSigningUp || isQuickScanning ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : isReturningUser ? "מתחבר..." : "יוצר חשבון..."}
+                          <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : isReturningUser ? "מתחבר..." : needsPasswordOnly ? "שומר..." : "יוצר חשבון..."}
                         </>
                       ) : isReturningUser ? (
                         <>
                           התחבר וסרוק <ArrowLeft className="w-4 h-4" />
+                        </>
+                      ) : needsPasswordOnly ? (
+                        <>
+                          שמור סיסמה וסרוק <ArrowLeft className="w-4 h-4" />
                         </>
                       ) : (
                         <>
@@ -747,16 +756,18 @@ const OnboardingPage = () => {
                   </div>
 
                   {/* Toggle between login and signup */}
-                  <button
-                    className="w-full mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    onClick={() => {
-                      setIsReturningUser(!isReturningUser);
-                      setSignupPassword("");
-                      setResetMode("none");
-                    }}
-                  >
-                    {isReturningUser ? "אין לי חשבון - צור חשבון חדש" : "יש לי כבר חשבון - התחבר"}
-                  </button>
+                  {!needsPasswordOnly && (
+                    <button
+                      className="w-full mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                      onClick={() => {
+                        setIsReturningUser(!isReturningUser);
+                        setSignupPassword("");
+                        setResetMode("none");
+                      }}
+                    >
+                      {isReturningUser ? "אין לי חשבון - צור חשבון חדש" : "יש לי כבר חשבון - התחבר"}
+                    </button>
+                  )}
                 </>
               )}
             </motion.div>

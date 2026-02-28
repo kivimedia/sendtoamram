@@ -125,7 +125,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     // Always return success (don't reveal if email exists)
     const userResult = await pool.query(
-      `SELECT id FROM users WHERE email = $1 AND password_hash IS NOT NULL LIMIT 1`,
+      `SELECT id FROM users WHERE email = $1 LIMIT 1`,
       [email],
     );
 
