@@ -346,6 +346,7 @@ const OnboardingPage = () => {
                 value={accountantName}
                 onChange={(e) => setAccountantName(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+                onKeyDown={(e) => { if (e.key === "Enter" && !isStarting) beginOnboarding(); }}
               />
               <Input
                 type="email"
@@ -354,6 +355,7 @@ const OnboardingPage = () => {
                 onChange={(e) => setAccountantEmail(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-4 border-border focus:border-coral focus:ring-coral"
                 dir={accountantEmail ? "ltr" : "rtl"}
+                onKeyDown={(e) => { if (e.key === "Enter" && !isStarting) beginOnboarding(); }}
               />
               <Button variant="coral" className="w-full h-12" onClick={beginOnboarding} disabled={isStarting}>
                 {isStarting
@@ -501,6 +503,7 @@ const OnboardingPage = () => {
                 onChange={(e) => setSignupPassword(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-6 border-border focus:border-coral focus:ring-coral"
                 dir={signupPassword ? "ltr" : "rtl"}
+                onKeyDown={(e) => { if (e.key === "Enter" && signupEmail && signupPassword.length >= 8) document.getElementById("signup-btn")?.click(); }}
               />
 
               <div className="flex gap-3">
@@ -508,6 +511,7 @@ const OnboardingPage = () => {
                   <ArrowRight className="w-4 h-4" />
                 </Button>
                 <Button
+                  id="signup-btn"
                   variant="coral"
                   className="flex-1 h-12"
                   onClick={async () => {
