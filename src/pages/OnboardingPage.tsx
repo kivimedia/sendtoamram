@@ -353,7 +353,7 @@ const OnboardingPage = () => {
                 value={accountantEmail}
                 onChange={(e) => setAccountantEmail(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-4 border-border focus:border-coral focus:ring-coral"
-                dir="ltr"
+                dir={accountantEmail ? "ltr" : "rtl"}
               />
               <Button variant="coral" className="w-full h-12" onClick={beginOnboarding} disabled={isStarting}>
                 {isStarting
@@ -492,7 +492,7 @@ const OnboardingPage = () => {
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
-                dir="ltr"
+                dir={signupEmail ? "ltr" : "rtl"}
               />
               <Input
                 type="password"
@@ -500,7 +500,7 @@ const OnboardingPage = () => {
                 value={signupPassword}
                 onChange={(e) => setSignupPassword(e.target.value)}
                 className="h-14 text-lg rounded-xl mb-6 border-border focus:border-coral focus:ring-coral"
-                dir="ltr"
+                dir={signupPassword ? "ltr" : "rtl"}
               />
 
               <div className="flex gap-3">
