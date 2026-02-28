@@ -83,38 +83,43 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/auth/login", async (request, reply) => {
-    const body = loginSchema.parse(request.body);
-    const email = body.email.trim().toLowerCase();
+    try {
+      const body = loginSchema.parse(request.body);
+      const email = body.email.trim().toLowerCase();
 
-    // Find user by email
-    const userResult = await pool.query(
-      `SELECT id, email, password_hash FROM users WHERE email = $1`,
-      [email],
-    );
+      // Find user by email
+      const userResult = await pool.query(
+        `SELECT id, email, password_hash FROM users WHERE email = $1`,
+        [email],
+      );
 
-    if (userResult.rows.length === 0 || !userResult.rows[0].password_hash) {
-      return reply.status(401).send({ message: "Invalid email or password" });
+      if (userResult.rows.length === 0 || !userResult.rows[0].password_hash) {
+        return reply.status(401).send({ message: "Invalid email or password" });
+      }
+
+      const user = userResult.rows[0];
+      const valid = await verifyPassword(body.password, user.password_hash);
+      if (!valid) {
+        return reply.status(401).send({ message: "Invalid email or password" });
+      }
+
+      // Find their business
+      const memberResult = await pool.query(
+        `SELECT business_id FROM business_members WHERE user_id = $1 AND role = 'OWNER' LIMIT 1`,
+        [user.id],
+      );
+
+      if (memberResult.rows.length === 0) {
+        return reply.status(401).send({ message: "No business found for this account" });
+      }
+
+      const businessId = memberResult.rows[0].business_id;
+      const token = createOwnerToken(user.id, businessId, user.email);
+      return { token, userId: user.id, businessId, email: user.email };
+    } catch (err: any) {
+      console.error("[auth/login] Error:", err?.message, err?.stack);
+      return reply.status(500).send({ message: "Login failed", detail: err?.message });
     }
-
-    const user = userResult.rows[0];
-    const valid = await verifyPassword(body.password, user.password_hash);
-    if (!valid) {
-      return reply.status(401).send({ message: "Invalid email or password" });
-    }
-
-    // Find their business
-    const memberResult = await pool.query(
-      `SELECT business_id FROM business_members WHERE user_id = $1 AND role = 'OWNER' LIMIT 1`,
-      [user.id],
-    );
-
-    if (memberResult.rows.length === 0) {
-      return reply.status(401).send({ message: "No business found for this account" });
-    }
-
-    const businessId = memberResult.rows[0].business_id;
-    const token = createOwnerToken(user.id, businessId, user.email);
-    return { token, userId: user.id, businessId, email: user.email };
   });
 
   // Request password reset - sends a 6-digit code via email
