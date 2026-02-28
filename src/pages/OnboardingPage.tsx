@@ -87,6 +87,16 @@ const OnboardingPage = () => {
 
   const displayName = accountantName || "עמרם";
 
+  // If already logged in with a token, go straight to dashboard
+  useEffect(() => {
+    const token = getAuthToken();
+    const bid = getActiveBusinessId();
+    if (token && bid && step === 0) {
+      navigate("/dashboard");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const slideVariants = {
     enter: { x: -50, opacity: 0 },
     center: { x: 0, opacity: 1 },
@@ -379,6 +389,16 @@ const OnboardingPage = () => {
                     : "בלי שם, קדימה"}{" "}
                 <ArrowLeft className="w-4 h-4" />
               </Button>
+              <button
+                className="w-full mt-3 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                onClick={() => {
+                  setIsReturningUser(true);
+                  setNeedsPasswordOnly(false);
+                  setStep(2);
+                }}
+              >
+                יש לי כבר חשבון - התחבר
+              </button>
             </motion.div>
           )}
 
@@ -615,10 +635,6 @@ const OnboardingPage = () => {
                         ? "הגדר סיסמה כדי להתחבר בפעם הבאה בלי Gmail."
                         : "כדי לשמור את הנתונים שלך ולגשת מכל מכשיר."}
                   </p>
-                  {signupEmail && (
-                    <p className="text-sm text-muted-foreground mb-6 font-mono" dir="ltr">{signupEmail}</p>
-                  )}
-
                   {!isReturningUser && !needsPasswordOnly && (
                     <Input
                       placeholder="שם מלא (לא חובה)"
@@ -627,16 +643,15 @@ const OnboardingPage = () => {
                       className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
                     />
                   )}
-                  {!isReturningUser && !needsPasswordOnly && (
-                    <Input
-                      type="email"
-                      placeholder="כתובת מייל"
-                      value={signupEmail}
-                      onChange={(e) => setSignupEmail(e.target.value)}
-                      className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
-                      dir={signupEmail ? "ltr" : "rtl"}
-                    />
-                  )}
+                  <Input
+                    type="email"
+                    placeholder="כתובת מייל"
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+                    dir={signupEmail ? "ltr" : "rtl"}
+                    readOnly={needsPasswordOnly}
+                  />
                   <Input
                     type="password"
                     placeholder={isReturningUser ? "סיסמה" : "סיסמה (לפחות 8 תווים)"}
@@ -677,11 +692,10 @@ const OnboardingPage = () => {
                       variant="coral"
                       className="flex-1 h-12"
                       onClick={async () => {
-                        if (!businessId) return;
                         setIsSigningUp(true);
 
                         if (isReturningUser) {
-                          // Login flow
+                          // Login flow - doesn't need businessId, the API returns it
                           try {
                             const result = await loginBusinessOwner({
                               email: signupEmail,
@@ -690,7 +704,8 @@ const OnboardingPage = () => {
                             setAuthToken(result.token);
                             setActiveBusinessId(result.businessId);
                             setBusinessId(result.businessId);
-                            handleQuickScan();
+                            // Go straight to dashboard for returning users
+                            navigate("/dashboard");
                           } catch (error) {
                             toast({
                               title: "סיסמה שגויה",
@@ -733,7 +748,7 @@ const OnboardingPage = () => {
                           }
                         }
                       }}
-                      disabled={isSigningUp || !signupEmail || signupPassword.length < (isReturningUser ? 1 : 8)}
+                      disabled={isSigningUp || !signupEmail || signupPassword.length < (isReturningUser ? 1 : 8) || (!isReturningUser && !businessId)}
                     >
                       {isSigningUp || isQuickScanning ? (
                         <>

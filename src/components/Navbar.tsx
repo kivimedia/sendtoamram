@@ -1,13 +1,15 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User } from "lucide-react";
 import { useState } from "react";
+import { getAuthToken } from "@/lib/session";
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const isLanding = location.pathname === "/";
+  const isLoggedIn = Boolean(getAuthToken());
 
   return (
     <motion.nav
@@ -34,12 +36,19 @@ const Navbar = () => {
         )}
 
         <div className="hidden md:flex items-center gap-3">
-          <Link to="/dashboard">
-            <Button variant="ghost" size="sm">דשבורד</Button>
-          </Link>
-          <Link to="/onboarding">
-            <Button variant="coral" size="sm">התחל בחינם</Button>
-          </Link>
+          {isLoggedIn ? (
+            <Link to="/dashboard">
+              <Button variant="coral" size="sm" className="gap-2">
+                <User className="w-4 h-4" /> דשבורד
+              </Button>
+            </Link>
+          ) : (
+            <>
+              <Link to="/onboarding">
+                <Button variant="coral" size="sm">התחל בחינם</Button>
+              </Link>
+            </>
+          )}
         </div>
 
         <button className="md:hidden" onClick={() => setMobileOpen(!mobileOpen)}>
@@ -61,12 +70,17 @@ const Navbar = () => {
                 <a href="#pricing" onClick={() => setMobileOpen(false)}><Button variant="nav" className="w-full justify-start">תמחור</Button></a>
               </>
             )}
-            <Link to="/dashboard" onClick={() => setMobileOpen(false)}>
-              <Button variant="ghost" className="w-full justify-start">דשבורד</Button>
-            </Link>
-            <Link to="/onboarding" onClick={() => setMobileOpen(false)}>
-              <Button variant="coral" className="w-full">התחל בחינם</Button>
-            </Link>
+            {isLoggedIn ? (
+              <Link to="/dashboard" onClick={() => setMobileOpen(false)}>
+                <Button variant="coral" className="w-full gap-2">
+                  <User className="w-4 h-4" /> דשבורד
+                </Button>
+              </Link>
+            ) : (
+              <Link to="/onboarding" onClick={() => setMobileOpen(false)}>
+                <Button variant="coral" className="w-full">התחל בחינם</Button>
+              </Link>
+            )}
           </div>
         </motion.div>
       )}
