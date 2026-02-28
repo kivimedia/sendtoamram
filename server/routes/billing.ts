@@ -66,36 +66,42 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
 
       const baseUrl = env.FRONTEND_BASE_URL;
 
-      const session = await stripe.checkout.sessions.create({
-        customer: customerId,
-        mode: "subscription",
-        line_items: [
-          // One-time onboarding fee
-          {
-            price_data: {
-              currency: "usd",
-              product_data: { name: "SendToAmram — Account Setup" },
-              unit_amount: ONBOARDING_AMOUNT,
+      try {
+        const session = await stripe.checkout.sessions.create({
+          customer: customerId,
+          mode: "subscription",
+          line_items: [
+            // One-time onboarding fee
+            {
+              price_data: {
+                currency: "usd",
+                product_data: { name: "SendToAmram — Account Setup" },
+                unit_amount: ONBOARDING_AMOUNT,
+              },
+              quantity: 1,
             },
-            quantity: 1,
-          },
-          // Monthly subscription
-          {
-            price_data: {
-              currency: "usd",
-              product_data: { name: "SendToAmram — Monthly Plan" },
-              unit_amount: MONTHLY_AMOUNT,
-              recurring: { interval: "month" },
+            // Monthly subscription
+            {
+              price_data: {
+                currency: "usd",
+                product_data: { name: "SendToAmram — Monthly Plan" },
+                unit_amount: MONTHLY_AMOUNT,
+                recurring: { interval: "month" },
+              },
+              quantity: 1,
             },
-            quantity: 1,
-          },
-        ],
-        success_url: `${baseUrl}/onboarding?payment=success&businessId=${businessId}`,
-        cancel_url: `${baseUrl}/onboarding?payment=cancelled&businessId=${businessId}`,
-        metadata: { businessId },
-      });
+          ],
+          success_url: `${baseUrl}/onboarding?payment=success&businessId=${businessId}`,
+          cancel_url: `${baseUrl}/onboarding?payment=cancelled&businessId=${businessId}`,
+          metadata: { businessId },
+        });
 
-      return { checkoutUrl: session.url };
+        return { checkoutUrl: session.url };
+      } catch (err: any) {
+        console.error("[billing] Stripe checkout error:", err.message);
+        reply.code(500);
+        return { error: err.message || "Failed to create checkout session" };
+      }
     },
   );
 

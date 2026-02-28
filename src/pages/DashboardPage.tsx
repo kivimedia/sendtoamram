@@ -389,14 +389,14 @@ const DashboardPage = () => {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 rounded-xl gradient-coral p-6 text-accent-foreground shadow-card"
+              className="mb-6 rounded-xl bg-gradient-to-l from-orange-600 to-red-500 p-6 text-white shadow-card"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <Sparkles className="w-6 h-6" />
+                  <Sparkles className="w-6 h-6 text-white" />
                   <div>
-                    <h3 className="font-display font-bold text-lg">הפעל את SendToAmram</h3>
-                    <p className="text-sm opacity-90">
+                    <h3 className="font-display font-bold text-lg text-white">הפעל את SendToAmram</h3>
+                    <p className="text-sm text-white/90">
                       סריקה עמוקה של 3 שנות חשבוניות + סנכרון שוטף אוטומטי.
                       <br />
                       $13 (כ-₪40) הקמה חד-פעמית + $7/חודש (כ-₪22).
@@ -405,7 +405,7 @@ const DashboardPage = () => {
                 </div>
                 <Button
                   variant="outline"
-                  className="bg-white text-foreground hover:bg-white/90 border-white/30 shrink-0"
+                  className="bg-white text-gray-900 hover:bg-gray-100 border-white font-semibold shrink-0"
                   onClick={() => checkoutMutation.mutate()}
                   disabled={checkoutMutation.isPending}
                 >
