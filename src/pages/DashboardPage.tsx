@@ -411,15 +411,14 @@ const DashboardPage = () => {
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  className="bg-white !text-gray-900 hover:bg-gray-100 hover:!text-gray-900 border-white font-semibold shrink-0"
+                <button
+                  className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shrink-0 bg-white text-gray-900 border border-white hover:bg-gray-200 hover:shadow-md transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
                   onClick={() => checkoutMutation.mutate()}
                   disabled={checkoutMutation.isPending}
                 >
                   <CreditCard className="w-4 h-4" />
                   {checkoutMutation.isPending ? "מעבר לתשלום..." : "הפעל עכשיו"}
-                </Button>
+                </button>
               </div>
             </motion.div>
           )}
