@@ -30,6 +30,7 @@ import {
   getDeepScanStatus,
   getOnboardingState,
   runInitialScan,
+  loginBusinessOwner,
   signupBusinessOwner,
   startOnboarding,
 } from "@/lib/api";
@@ -523,9 +524,32 @@ const OnboardingPage = () => {
                       // Immediately run quick scan after signup
                       handleQuickScan();
                     } catch (error) {
+                      const msg = error instanceof Error ? error.message : "";
+                      const isAlreadyExists = msg.toLowerCase().includes("already") || msg.includes("כבר");
+                      if (isAlreadyExists) {
+                        // Auto-login instead of showing error
+                        try {
+                          const result = await loginBusinessOwner({
+                            email: signupEmail,
+                            password: signupPassword,
+                          });
+                          setAuthToken(result.token);
+                          setActiveBusinessId(result.businessId);
+                          handleQuickScan();
+                          return;
+                        } catch (loginError) {
+                          toast({
+                            title: "התחברות נכשלה",
+                            description: loginError instanceof Error ? loginError.message : "סיסמה שגויה.",
+                            variant: "destructive",
+                          });
+                          setIsSigningUp(false);
+                          return;
+                        }
+                      }
                       toast({
                         title: "יצירת חשבון נכשלה",
-                        description: error instanceof Error ? error.message : "שגיאה ביצירת החשבון.",
+                        description: msg || "שגיאה ביצירת החשבון.",
                         variant: "destructive",
                       });
                       setIsSigningUp(false);
