@@ -180,9 +180,24 @@ const OnboardingPage = () => {
       hydrateState(response);
       setStep(1);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "לא הצלחנו להתחיל את תהליך ההגדרה.";
+      const isEmailExists = errorMessage.toLowerCase().includes("already in use") || errorMessage.includes("כבר בשימוש");
+      
       toast({
-        title: "שגיאת התחלה",
-        description: error instanceof Error ? error.message : "לא הצלחנו להתחיל את תהליך ההגדרה.",
+        title: isEmailExists ? "המייל כבר רשום" : "שגיאת התחלה",
+        description: isEmailExists ? (
+          <div className="space-y-2">
+            <p>{errorMessage}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/dashboard")}
+              className="mt-2 w-full"
+            >
+              התחבר במקום
+            </Button>
+          </div>
+        ) : errorMessage,
         variant: "destructive",
       });
     } finally {
