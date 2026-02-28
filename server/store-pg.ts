@@ -864,6 +864,15 @@ export class AppStorePg {
     };
   }
 
+  async updateOwnerName(businessId: string, displayName: string) {
+    const owner = await this.getOwnerForBusiness(businessId);
+    if (!owner) return;
+    // Only set name if it's currently empty
+    if (!owner.fullName) {
+      await this.query(`UPDATE users SET full_name = $1, updated_at = now() WHERE id = $2`, [displayName, owner.id]);
+    }
+  }
+
   async updateAccountSettings(payload: {
     businessId: string;
     fullName?: string;

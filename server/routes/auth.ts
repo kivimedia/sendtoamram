@@ -1,7 +1,13 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { randomInt } from "crypto";
+import { Resend } from "resend";
 import { pool } from "../db";
+import { env } from "../config";
 import { hashPassword, verifyPassword, createOwnerToken } from "../services/user-auth";
+
+// In-memory reset codes (keyed by email -> { code, expiresAt })
+const resetCodes = new Map<string, { code: string; expiresAt: number }>();
 
 const signupSchema = z.object({
   businessId: z.string().uuid(),
@@ -110,5 +116,98 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const businessId = memberResult.rows[0].business_id;
     const token = createOwnerToken(user.id, businessId, user.email);
     return { token, userId: user.id, businessId, email: user.email };
+  });
+
+  // Request password reset - sends a 6-digit code via email
+  app.post("/auth/forgot-password", async (request, reply) => {
+    const body = z.object({ email: z.string().email() }).parse(request.body);
+    const email = body.email.trim().toLowerCase();
+
+    // Always return success (don't reveal if email exists)
+    const userResult = await pool.query(
+      `SELECT id FROM users WHERE email = $1 AND password_hash IS NOT NULL LIMIT 1`,
+      [email],
+    );
+
+    if (userResult.rows.length > 0 && env.RESEND_API_KEY) {
+      const code = String(randomInt(100000, 999999));
+      resetCodes.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 }); // 10 min
+
+      try {
+        const resend = new Resend(env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: env.RESEND_FROM_EMAIL,
+          to: email,
+          subject: "SendToAmram - איפוס סיסמה",
+          html: `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;direction:rtl;text-align:right;background:#f5f5f5;margin:0;padding:20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+    <div style="background:linear-gradient(135deg,#ff6b6b,#ee5a24);padding:20px 28px;">
+      <h1 style="color:#fff;margin:0;font-size:20px;">SendToAmram</h1>
+    </div>
+    <div style="padding:24px 28px;">
+      <p style="font-size:16px;color:#333;">קוד האיפוס שלך:</p>
+      <div style="background:#f8f8f8;border-radius:8px;padding:16px;text-align:center;margin:16px 0;">
+        <span style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#ee5a24;">${code}</span>
+      </div>
+      <p style="font-size:14px;color:#888;">הקוד תקף ל-10 דקות.</p>
+    </div>
+  </div>
+</body>
+</html>`,
+        });
+        console.log(`[auth] Reset code sent to ${email}`);
+      } catch (err: any) {
+        console.error(`[auth] Failed to send reset email:`, err.message);
+      }
+    }
+
+    return { sent: true };
+  });
+
+  // Verify reset code and set new password
+  app.post("/auth/reset-password", async (request, reply) => {
+    const body = z.object({
+      email: z.string().email(),
+      code: z.string().length(6),
+      newPassword: z.string().min(8),
+    }).parse(request.body);
+    const email = body.email.trim().toLowerCase();
+
+    const stored = resetCodes.get(email);
+    if (!stored || stored.code !== body.code || Date.now() > stored.expiresAt) {
+      return reply.status(400).send({ message: "קוד שגוי או שפג תוקפו." });
+    }
+
+    // Update password
+    const passwordHash = await hashPassword(body.newPassword);
+    const result = await pool.query(
+      `UPDATE users SET password_hash = $1, updated_at = now() WHERE email = $2 RETURNING id`,
+      [passwordHash, email],
+    );
+
+    if (result.rowCount === 0) {
+      return reply.status(404).send({ message: "User not found" });
+    }
+
+    resetCodes.delete(email);
+
+    // Auto-login after reset
+    const user = result.rows[0];
+    const memberResult = await pool.query(
+      `SELECT business_id FROM business_members WHERE user_id = $1 AND role = 'OWNER' LIMIT 1`,
+      [user.id],
+    );
+
+    if (memberResult.rows.length === 0) {
+      return { reset: true };
+    }
+
+    const businessId = memberResult.rows[0].business_id;
+    const token = createOwnerToken(user.id, businessId, email);
+    return { reset: true, token, userId: user.id, businessId, email };
   });
 }

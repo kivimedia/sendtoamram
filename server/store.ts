@@ -1086,6 +1086,16 @@ export class AppStore {
     };
   }
 
+  updateOwnerName(businessId: string, displayName: string) {
+    const owner = this.getOwnerForBusiness(businessId);
+    if (!owner) return;
+    if (!owner.fullName) {
+      owner.fullName = displayName;
+      owner.updatedAt = nowIso();
+      this.save();
+    }
+  }
+
   updateAccountSettings(payload: {
     businessId: string;
     fullName?: string;

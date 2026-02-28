@@ -532,3 +532,21 @@ export function loginBusinessOwner(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export function requestPasswordReset(email: string): Promise<{ sent: boolean }> {
+  return apiRequest("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(payload: {
+  email: string;
+  code: string;
+  newPassword: string;
+}): Promise<AuthResponse & { reset: boolean }> {
+  return apiRequest("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

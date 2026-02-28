@@ -30,6 +30,8 @@ import {
   getDashboardDocuments,
   getDeepScanStatus,
   getOnboardingState,
+  requestPasswordReset,
+  resetPassword,
   runInitialScan,
   loginBusinessOwner,
   signupBusinessOwner,
@@ -75,6 +77,9 @@ const OnboardingPage = () => {
   const [signupFullName, setSignupFullName] = useState("");
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState(false);
+  const [resetMode, setResetMode] = useState<"none" | "sent" | "verify">("none");
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -126,6 +131,7 @@ const OnboardingPage = () => {
     const callbackBusinessId = params.get("businessId");
     const message = params.get("message");
     const paymentStatus = params.get("payment");
+    const oauthDisplayName = params.get("displayName");
     const savedBusinessId = getActiveBusinessId();
     const nextBusinessId = callbackBusinessId ?? savedBusinessId;
 
@@ -155,6 +161,10 @@ const OnboardingPage = () => {
     }
 
     if (oauthStatus === "success" && provider) {
+      // Pre-fill user's name from their Google/Outlook profile
+      if (oauthDisplayName && !signupFullName) {
+        setSignupFullName(oauthDisplayName);
+      }
       toast({
         title: "חיבור הצליח",
         description: `תיבת ${provider} חוברה בהצלחה.`,
@@ -178,7 +188,7 @@ const OnboardingPage = () => {
       setStep(4);
     }
 
-    if (oauthStatus || callbackBusinessId || provider || message || paymentStatus) {
+    if (oauthStatus || callbackBusinessId || provider || message || paymentStatus || oauthDisplayName) {
       window.history.replaceState(null, "", "/onboarding");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -486,139 +496,229 @@ const OnboardingPage = () => {
               <div className="w-16 h-16 rounded-2xl bg-coral-light flex items-center justify-center mb-6">
                 {isReturningUser ? <ShieldCheck className="w-8 h-8 text-coral" /> : <UserPlus className="w-8 h-8 text-coral" />}
               </div>
-              <h1 className="font-display text-3xl font-bold text-foreground mb-3">
-                {isReturningUser ? "ברוך הבא חזרה!" : "צור חשבון"}
-              </h1>
-              <p className="text-muted-foreground mb-2">
-                {isReturningUser
-                  ? "זיהינו את המייל שלך. הזן סיסמה כדי להתחבר."
-                  : "כדי לשמור את הנתונים שלך ולגשת מכל מכשיר."}
-              </p>
-              {signupEmail && (
-                <p className="text-sm text-muted-foreground mb-6 font-mono" dir="ltr">{signupEmail}</p>
-              )}
 
-              {!isReturningUser && (
-                <Input
-                  placeholder="שם מלא (לא חובה)"
-                  value={signupFullName}
-                  onChange={(e) => setSignupFullName(e.target.value)}
-                  className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
-                />
-              )}
-              {!isReturningUser && (
-                <Input
-                  type="email"
-                  placeholder="כתובת מייל"
-                  value={signupEmail}
-                  onChange={(e) => setSignupEmail(e.target.value)}
-                  className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
-                  dir={signupEmail ? "ltr" : "rtl"}
-                />
-              )}
-              <Input
-                type="password"
-                placeholder={isReturningUser ? "סיסמה" : "סיסמה (לפחות 8 תווים)"}
-                value={signupPassword}
-                onChange={(e) => setSignupPassword(e.target.value)}
-                className="h-14 text-lg rounded-xl mb-6 border-border focus:border-coral focus:ring-coral"
-                dir={signupPassword ? "ltr" : "rtl"}
-                onKeyDown={(e) => { if (e.key === "Enter" && signupEmail && signupPassword.length >= (isReturningUser ? 1 : 8)) document.getElementById("auth-btn")?.click(); }}
-              />
-
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={() => setStep(1)} className="h-12">
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-                <Button
-                  id="auth-btn"
-                  variant="coral"
-                  className="flex-1 h-12"
-                  onClick={async () => {
-                    if (!businessId) return;
-                    setIsSigningUp(true);
-
-                    if (isReturningUser) {
-                      // Login flow
-                      try {
-                        const result = await loginBusinessOwner({
-                          email: signupEmail,
-                          password: signupPassword,
-                        });
-                        setAuthToken(result.token);
-                        setActiveBusinessId(result.businessId);
-                        setBusinessId(result.businessId);
-                        handleQuickScan();
-                      } catch (error) {
-                        toast({
-                          title: "סיסמה שגויה",
-                          description: "בדוק את הסיסמה ונסה שוב.",
-                          variant: "destructive",
-                        });
-                        setIsSigningUp(false);
-                      }
-                    } else {
-                      // Signup flow
-                      try {
-                        const result = await signupBusinessOwner({
-                          businessId,
-                          email: signupEmail,
-                          password: signupPassword,
-                          fullName: signupFullName || undefined,
-                        });
-                        setAuthToken(result.token);
-                        handleQuickScan();
-                      } catch (error) {
-                        const msg = error instanceof Error ? error.message : "";
-                        const isAlreadyExists = msg.toLowerCase().includes("already") || msg.includes("כבר");
-                        if (isAlreadyExists) {
-                          // Switch to login mode
-                          setIsReturningUser(true);
-                          setSignupPassword("");
+              {/* ── Reset password: enter code ── */}
+              {resetMode === "verify" ? (
+                <>
+                  <h1 className="font-display text-3xl font-bold text-foreground mb-3">הזן קוד איפוס</h1>
+                  <p className="text-muted-foreground mb-2">שלחנו קוד בן 6 ספרות ל:</p>
+                  <p className="text-sm text-muted-foreground mb-6 font-mono" dir="ltr">{signupEmail}</p>
+                  <Input
+                    placeholder="קוד בן 6 ספרות"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral text-center tracking-widest"
+                    dir="ltr"
+                    inputMode="numeric"
+                    onKeyDown={(e) => { if (e.key === "Enter" && resetCode.length === 6 && newPassword.length >= 8) document.getElementById("reset-btn")?.click(); }}
+                  />
+                  <Input
+                    type="password"
+                    placeholder="סיסמה חדשה (לפחות 8 תווים)"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="h-14 text-lg rounded-xl mb-6 border-border focus:border-coral focus:ring-coral"
+                    dir={newPassword ? "ltr" : "rtl"}
+                    onKeyDown={(e) => { if (e.key === "Enter" && resetCode.length === 6 && newPassword.length >= 8) document.getElementById("reset-btn")?.click(); }}
+                  />
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => { setResetMode("none"); setResetCode(""); setNewPassword(""); }} className="h-12">
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      id="reset-btn"
+                      variant="coral"
+                      className="flex-1 h-12"
+                      disabled={isSigningUp || resetCode.length !== 6 || newPassword.length < 8}
+                      onClick={async () => {
+                        setIsSigningUp(true);
+                        try {
+                          const result = await resetPassword({ email: signupEmail, code: resetCode, newPassword });
+                          if (result.token) {
+                            setAuthToken(result.token);
+                            setActiveBusinessId(result.businessId);
+                            setBusinessId(result.businessId);
+                            toast({ title: "הסיסמה אופסה בהצלחה!" });
+                            handleQuickScan();
+                          } else {
+                            toast({ title: "הסיסמה אופסה. התחבר עם הסיסמה החדשה." });
+                            setResetMode("none");
+                            setSignupPassword("");
+                          }
+                        } catch (error) {
                           toast({
-                            title: "המייל כבר רשום",
-                            description: "הזן את הסיסמה שלך כדי להתחבר.",
+                            title: "איפוס נכשל",
+                            description: error instanceof Error ? error.message : "קוד שגוי או שפג תוקפו.",
+                            variant: "destructive",
                           });
+                        } finally {
                           setIsSigningUp(false);
-                          return;
                         }
-                        toast({
-                          title: "יצירת חשבון נכשלה",
-                          description: msg || "שגיאה ביצירת החשבון.",
-                          variant: "destructive",
-                        });
-                        setIsSigningUp(false);
-                      }
-                    }
-                  }}
-                  disabled={isSigningUp || !signupEmail || signupPassword.length < (isReturningUser ? 1 : 8)}
-                >
-                  {isSigningUp || isQuickScanning ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : isReturningUser ? "מתחבר..." : "יוצר חשבון..."}
-                    </>
-                  ) : isReturningUser ? (
-                    <>
-                      התחבר וסרוק <ArrowLeft className="w-4 h-4" />
-                    </>
-                  ) : (
-                    <>
-                      צור חשבון וסרוק <ArrowLeft className="w-4 h-4" />
-                    </>
+                      }}
+                    >
+                      {isSigningUp ? <><Loader2 className="w-4 h-4 animate-spin" /> מאפס...</> : <>אפס סיסמה והתחבר <ArrowLeft className="w-4 h-4" /></>}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h1 className="font-display text-3xl font-bold text-foreground mb-3">
+                    {isReturningUser ? "ברוך הבא חזרה!" : "צור חשבון"}
+                  </h1>
+                  <p className="text-muted-foreground mb-2">
+                    {isReturningUser
+                      ? "זיהינו את המייל שלך. הזן סיסמה כדי להתחבר."
+                      : "כדי לשמור את הנתונים שלך ולגשת מכל מכשיר."}
+                  </p>
+                  {signupEmail && (
+                    <p className="text-sm text-muted-foreground mb-6 font-mono" dir="ltr">{signupEmail}</p>
                   )}
-                </Button>
-              </div>
 
-              {/* Toggle between login and signup */}
-              <button
-                className="w-full mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                onClick={() => {
-                  setIsReturningUser(!isReturningUser);
-                  setSignupPassword("");
-                }}
-              >
-                {isReturningUser ? "אין לי חשבון - צור חשבון חדש" : "יש לי כבר חשבון - התחבר"}
-              </button>
+                  {!isReturningUser && (
+                    <Input
+                      placeholder="שם מלא (לא חובה)"
+                      value={signupFullName}
+                      onChange={(e) => setSignupFullName(e.target.value)}
+                      className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+                    />
+                  )}
+                  {!isReturningUser && (
+                    <Input
+                      type="email"
+                      placeholder="כתובת מייל"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      className="h-14 text-lg rounded-xl mb-3 border-border focus:border-coral focus:ring-coral"
+                      dir={signupEmail ? "ltr" : "rtl"}
+                    />
+                  )}
+                  <Input
+                    type="password"
+                    placeholder={isReturningUser ? "סיסמה" : "סיסמה (לפחות 8 תווים)"}
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                    className="h-14 text-lg rounded-xl mb-2 border-border focus:border-coral focus:ring-coral"
+                    dir={signupPassword ? "ltr" : "rtl"}
+                    onKeyDown={(e) => { if (e.key === "Enter" && signupEmail && signupPassword.length >= (isReturningUser ? 1 : 8)) document.getElementById("auth-btn")?.click(); }}
+                  />
+
+                  {/* Forgot password link */}
+                  {isReturningUser && (
+                    <button
+                      className="block text-sm text-coral hover:underline mb-4 cursor-pointer"
+                      onClick={async () => {
+                        if (!signupEmail) return;
+                        toast({ title: "שולח קוד איפוס..." });
+                        try {
+                          await requestPasswordReset(signupEmail);
+                          setResetMode("verify");
+                          toast({ title: "קוד נשלח!", description: "בדוק את תיבת המייל שלך." });
+                        } catch {
+                          toast({ title: "שליחה נכשלה", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      שכחתי סיסמה
+                    </button>
+                  )}
+                  {!isReturningUser && <div className="mb-4" />}
+
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => setStep(1)} className="h-12">
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      id="auth-btn"
+                      variant="coral"
+                      className="flex-1 h-12"
+                      onClick={async () => {
+                        if (!businessId) return;
+                        setIsSigningUp(true);
+
+                        if (isReturningUser) {
+                          // Login flow
+                          try {
+                            const result = await loginBusinessOwner({
+                              email: signupEmail,
+                              password: signupPassword,
+                            });
+                            setAuthToken(result.token);
+                            setActiveBusinessId(result.businessId);
+                            setBusinessId(result.businessId);
+                            handleQuickScan();
+                          } catch (error) {
+                            toast({
+                              title: "סיסמה שגויה",
+                              description: "בדוק את הסיסמה ונסה שוב.",
+                              variant: "destructive",
+                            });
+                            setIsSigningUp(false);
+                          }
+                        } else {
+                          // Signup flow
+                          try {
+                            const result = await signupBusinessOwner({
+                              businessId,
+                              email: signupEmail,
+                              password: signupPassword,
+                              fullName: signupFullName || undefined,
+                            });
+                            setAuthToken(result.token);
+                            handleQuickScan();
+                          } catch (error) {
+                            const msg = error instanceof Error ? error.message : "";
+                            const isAlreadyExists = msg.toLowerCase().includes("already") || msg.includes("כבר");
+                            if (isAlreadyExists) {
+                              // Switch to login mode
+                              setIsReturningUser(true);
+                              setSignupPassword("");
+                              toast({
+                                title: "המייל כבר רשום",
+                                description: "הזן את הסיסמה שלך כדי להתחבר.",
+                              });
+                              setIsSigningUp(false);
+                              return;
+                            }
+                            toast({
+                              title: "יצירת חשבון נכשלה",
+                              description: msg || "שגיאה ביצירת החשבון.",
+                              variant: "destructive",
+                            });
+                            setIsSigningUp(false);
+                          }
+                        }
+                      }}
+                      disabled={isSigningUp || !signupEmail || signupPassword.length < (isReturningUser ? 1 : 8)}
+                    >
+                      {isSigningUp || isQuickScanning ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : isReturningUser ? "מתחבר..." : "יוצר חשבון..."}
+                        </>
+                      ) : isReturningUser ? (
+                        <>
+                          התחבר וסרוק <ArrowLeft className="w-4 h-4" />
+                        </>
+                      ) : (
+                        <>
+                          צור חשבון וסרוק <ArrowLeft className="w-4 h-4" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Toggle between login and signup */}
+                  <button
+                    className="w-full mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    onClick={() => {
+                      setIsReturningUser(!isReturningUser);
+                      setSignupPassword("");
+                      setResetMode("none");
+                    }}
+                  >
+                    {isReturningUser ? "אין לי חשבון - צור חשבון חדש" : "יש לי כבר חשבון - התחבר"}
+                  </button>
+                </>
+              )}
             </motion.div>
           )}
 

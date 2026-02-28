@@ -31,6 +31,7 @@ function onboardingRedirect(params: {
   provider: OAuthProvider;
   businessId?: string;
   message?: string;
+  displayName?: string;
 }): string {
   const query = new URLSearchParams();
   query.set("oauth", params.status);
@@ -40,6 +41,9 @@ function onboardingRedirect(params: {
   }
   if (params.message) {
     query.set("message", params.message);
+  }
+  if (params.displayName) {
+    query.set("displayName", params.displayName);
   }
   return `${env.FRONTEND_BASE_URL}/onboarding?${query.toString()}`;
 }
@@ -108,11 +112,21 @@ export async function registerOAuthRoutes(app: FastifyInstance): Promise<void> {
         expiresAt: tokens.expiresAt,
       });
 
+      // Save the user's display name from their Google/Outlook profile
+      if (profile.displayName) {
+        try {
+          await store.updateOwnerName(state.businessId, profile.displayName);
+        } catch {
+          // Non-critical - name is nice to have
+        }
+      }
+
       return reply.redirect(
         onboardingRedirect({
           status: "success",
           provider,
           businessId: state.businessId,
+          displayName: profile.displayName ?? undefined,
         }),
       );
     } catch (error) {
