@@ -67,19 +67,19 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
       const baseUrl = env.FRONTEND_BASE_URL;
 
       try {
+        // Pre-create an invoice item for the one-time setup fee
+        // This gets added to the subscription's first invoice automatically
+        await stripe.invoiceItems.create({
+          customer: customerId!,
+          amount: ONBOARDING_AMOUNT,
+          currency: "usd",
+          description: "SendToAmram — Account Setup (one-time)",
+        });
+
         const session = await stripe.checkout.sessions.create({
           customer: customerId,
           mode: "subscription",
           line_items: [
-            // One-time onboarding fee
-            {
-              price_data: {
-                currency: "usd",
-                product_data: { name: "SendToAmram — Account Setup" },
-                unit_amount: ONBOARDING_AMOUNT,
-              },
-              quantity: 1,
-            },
             // Monthly subscription
             {
               price_data: {

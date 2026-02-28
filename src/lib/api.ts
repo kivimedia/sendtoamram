@@ -173,6 +173,8 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
       const payload = await response.json();
       if (payload?.message) {
         message = payload.message;
+      } else if (payload?.error) {
+        message = payload.error;
       }
     } catch {
       // Ignore json parse failures.
