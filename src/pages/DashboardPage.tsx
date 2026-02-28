@@ -344,7 +344,15 @@ const DashboardPage = () => {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
             <div>
-              <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground">בוקר טוב! ☀️</h1>
+              <h1 className="font-display text-2xl md:text-3xl font-bold text-foreground">
+                {(() => {
+                  const h = new Date().getHours();
+                  if (h >= 5 && h < 12) return "בוקר טוב! ☀️";
+                  if (h >= 12 && h < 17) return "צהריים טובים! 🌤️";
+                  if (h >= 17 && h < 21) return "ערב טוב! 🌅";
+                  return "לילה טוב! 🌙";
+                })()}
+              </h1>
               <p className="text-muted-foreground">
                 {summary
                   ? `${summary.business.accountantName} קיבל/ה ${summary.totals.sent} מסמכים. אתה על אוטופיילוט.`
