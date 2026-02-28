@@ -502,6 +502,15 @@ export interface AuthResponse {
   email: string;
 }
 
+export function checkEmailExists(
+  email: string,
+): Promise<{ exists: boolean; hasAccount: boolean }> {
+  return apiRequest("/auth/check-email", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function signupBusinessOwner(payload: {
   businessId: string;
   email: string;
