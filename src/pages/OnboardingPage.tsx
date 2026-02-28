@@ -491,7 +491,7 @@ const OnboardingPage = () => {
                   variant="coral"
                   className="flex-1 h-12"
                   onClick={async () => {
-                    const inboxEmail = selectedLoginEmail || connectedInboxes[0]?.email ?? "";
+                    const inboxEmail = selectedLoginEmail || (connectedInboxes[0]?.email ?? "");
                     if (inboxEmail) {
                       setSignupEmail(inboxEmail);
                       try {

@@ -6,8 +6,7 @@ import { pool } from "../db";
 import { env } from "../config";
 import { hashPassword, verifyPassword, createOwnerToken } from "../services/user-auth";
 
-// In-memory reset codes (keyed by email -> { code, expiresAt })
-const resetCodes = new Map<string, { code: string; expiresAt: number }>();
+// Reset codes stored in DB (users.reset_code + users.reset_code_expires_at)
 
 const signupSchema = z.object({
   businessId: z.string().uuid(),
@@ -131,7 +130,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     if (userResult.rows.length > 0 && env.RESEND_API_KEY) {
       const code = String(randomInt(100000, 999999));
-      resetCodes.set(email, { code, expiresAt: Date.now() + 10 * 60 * 1000 }); // 10 min
+      await pool.query(
+        `UPDATE users SET reset_code = $1, reset_code_expires_at = now() + interval '10 minutes' WHERE email = $2`,
+        [code, email],
+      );
 
       try {
         const resend = new Resend(env.RESEND_API_KEY);
@@ -177,23 +179,26 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }).parse(request.body);
     const email = body.email.trim().toLowerCase();
 
-    const stored = resetCodes.get(email);
-    if (!stored || stored.code !== body.code || Date.now() > stored.expiresAt) {
+    // Check code from DB
+    const codeResult = await pool.query(
+      `SELECT id, reset_code, reset_code_expires_at FROM users WHERE email = $1 LIMIT 1`,
+      [email],
+    );
+    const stored = codeResult.rows[0];
+    if (!stored || stored.reset_code !== body.code || !stored.reset_code_expires_at || new Date(stored.reset_code_expires_at) < new Date()) {
       return reply.status(400).send({ message: "קוד שגוי או שפג תוקפו." });
     }
 
-    // Update password
+    // Update password and clear reset code
     const passwordHash = await hashPassword(body.newPassword);
     const result = await pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = now() WHERE email = $2 RETURNING id`,
+      `UPDATE users SET password_hash = $1, reset_code = NULL, reset_code_expires_at = NULL, updated_at = now() WHERE email = $2 RETURNING id`,
       [passwordHash, email],
     );
 
     if (result.rowCount === 0) {
       return reply.status(404).send({ message: "User not found" });
     }
-
-    resetCodes.delete(email);
 
     // Auto-login after reset
     const user = result.rows[0];
