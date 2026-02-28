@@ -413,7 +413,7 @@ const DashboardPage = () => {
                 </div>
                 <Button
                   variant="outline"
-                  className="bg-white text-gray-900 hover:bg-gray-100 border-white font-semibold shrink-0"
+                  className="bg-white !text-gray-900 hover:bg-gray-100 hover:!text-gray-900 border-white font-semibold shrink-0"
                   onClick={() => checkoutMutation.mutate()}
                   disabled={checkoutMutation.isPending}
                 >
