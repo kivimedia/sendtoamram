@@ -35,7 +35,8 @@ export async function createServer() {
   app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
     try {
       (req as any).rawBody = body;
-      done(null, JSON.parse(body as string));
+      const str = (body as string) || "";
+      done(null, str.length > 0 ? JSON.parse(str) : {});
     } catch (err: any) {
       done(err, undefined);
     }
