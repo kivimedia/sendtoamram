@@ -95,12 +95,11 @@ const OnboardingPage = () => {
       getBillingStatus(bid)
         .then((billing) => {
           if (billing.billingEnabled && !billing.onboardingPaid) {
-            // Not paid - load onboarding state and show quick scan / offer
+            // Not paid - show deep scan pitch + payment page directly
             setBusinessId(bid);
             loadOnboardingState(bid).then(() => {
-              handleQuickScan();
+              setStep(4);
             }).catch(() => {
-              // If state load fails, show payment step directly
               setStep(4);
             });
           } else {
@@ -726,9 +725,10 @@ const OnboardingPage = () => {
                             try {
                               const billing = await getBillingStatus(result.businessId);
                               if (billing.billingEnabled && !billing.onboardingPaid) {
-                                // Not paid yet - load state and show quick scan / offer
+                                // Not paid yet - show deep scan pitch + payment page
                                 await loadOnboardingState(result.businessId);
-                                handleQuickScan();
+                                setIsSigningUp(false);
+                                setStep(4);
                                 return;
                               }
                             } catch {
