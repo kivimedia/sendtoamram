@@ -420,6 +420,157 @@ export async function classifyEmailBatch(
   }
 }
 
+// ── Invoice Chat Tools (tool_use) ──────────────────────────────
+
+const INVOICE_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "search_invoices",
+    description: "Search and filter invoices by vendor name, category, or status. Returns matching invoices.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        vendor: { type: "string", description: "Vendor name to search (partial, case-insensitive)" },
+        category: { type: "string", description: "Category to filter by (exact Hebrew name)" },
+        status: { type: "string", enum: ["sent", "pending", "review"], description: "Status filter" },
+        limit: { type: "number", description: "Max results (default 10)" },
+      },
+    },
+  },
+  {
+    name: "recategorize_invoices",
+    description: "Change the category of all invoices from a specific vendor. Optionally filter by current category.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        vendor: { type: "string", description: "Vendor name to match (case-insensitive)" },
+        oldCategory: { type: "string", description: "Only recategorize invoices currently in this category (optional)" },
+        newCategory: { type: "string", description: "New category to assign" },
+      },
+      required: ["vendor", "newCategory"],
+    },
+  },
+  {
+    name: "get_invoice_stats",
+    description: "Get summary statistics grouped by category or vendor - count, total amount.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        groupBy: { type: "string", enum: ["category", "vendor"], description: "Group results by" },
+        vendor: { type: "string", description: "Optional vendor name filter" },
+        category: { type: "string", description: "Optional category filter" },
+        limit: { type: "number", description: "Max groups to return (default 15)" },
+      },
+      required: ["groupBy"],
+    },
+  },
+];
+
+export interface InvoiceToolExecutor {
+  searchInvoices(params: { vendor?: string; category?: string; status?: string; limit?: number }): Promise<any[]>;
+  recategorizeInvoices(params: { vendor: string; oldCategory?: string; newCategory: string }): Promise<number>;
+  getInvoiceStats(params: { groupBy: string; vendor?: string; category?: string; limit?: number }): Promise<any[]>;
+}
+
+export async function invoiceChatResponse(
+  businessId: string,
+  userMessage: string,
+  recentMessages: Array<{ role: "user" | "assistant"; text: string }>,
+  context: { businessName: string; totalDocs: number; totalAmountCents: number },
+  executor: InvoiceToolExecutor,
+): Promise<string> {
+  const model = env.AI_MODEL_CHEAP;
+
+  const systemPrompt = `אתה "Amram AI", עוזר חכם לניהול חשבוניות.
+ענה בעברית. תמציתי וידידותי.
+
+עסק: ${context.businessName}
+סה"כ: ${context.totalDocs} חשבוניות, ₪${(context.totalAmountCents / 100).toLocaleString("he-IL")}
+קטגוריות: ${CATEGORY_LIST_STR}
+
+השתמש בכלים כדי לחפש, לסנן, ולשנות קטגוריות של חשבוניות.
+כשהמשתמש מבקש לשנות קטגוריה, בצע את הפעולה ודווח כמה חשבוניות עודכנו.
+כשהמשתמש שואל על ספק, חפש את החשבוניות שלו.
+כשאתה מציג תוצאות, הצג אותן בצורה מסודרת עם סכומים בשקלים (₪).`;
+
+  const messages: Anthropic.MessageParam[] = [
+    ...recentMessages.slice(-6).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.text,
+    })),
+    { role: "user", content: userMessage },
+  ];
+
+  // Tool-use loop (max 3 rounds)
+  for (let round = 0; round < 3; round++) {
+    const response = await getClient().messages.create({
+      model,
+      max_tokens: 1024,
+      system: systemPrompt,
+      tools: INVOICE_TOOLS,
+      messages,
+    });
+
+    await logUsage(businessId, model, "invoice_chat", response.usage);
+
+    // Check if the response is a final text answer
+    const textBlock = response.content.find((b) => b.type === "text");
+    const toolBlocks = response.content.filter((b) => b.type === "tool_use");
+
+    if (toolBlocks.length === 0 && textBlock?.type === "text") {
+      return textBlock.text;
+    }
+
+    // Execute tool calls
+    messages.push({ role: "assistant", content: response.content });
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+    for (const block of toolBlocks) {
+      if (block.type !== "tool_use") continue;
+      const input = block.input as any;
+      let result: any;
+
+      try {
+        if (block.name === "search_invoices") {
+          result = await executor.searchInvoices({
+            vendor: input.vendor,
+            category: input.category,
+            status: input.status,
+            limit: input.limit ?? 10,
+          });
+        } else if (block.name === "recategorize_invoices") {
+          const count = await executor.recategorizeInvoices({
+            vendor: input.vendor,
+            oldCategory: input.oldCategory,
+            newCategory: input.newCategory,
+          });
+          result = { updated: count, vendor: input.vendor, newCategory: input.newCategory };
+        } else if (block.name === "get_invoice_stats") {
+          result = await executor.getInvoiceStats({
+            groupBy: input.groupBy,
+            vendor: input.vendor,
+            category: input.category,
+            limit: input.limit ?? 15,
+          });
+        } else {
+          result = { error: "Unknown tool" };
+        }
+      } catch (err: any) {
+        result = { error: err.message ?? "Tool execution failed" };
+      }
+
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: JSON.stringify(result),
+      });
+    }
+
+    messages.push({ role: "user", content: toolResults });
+  }
+
+  return "לא הצלחתי לעבד את הבקשה. נסה שוב.";
+}
+
 // ── Chat response (Haiku) ──────────────────────────────────────
 
 export async function chatResponse(

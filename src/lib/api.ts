@@ -339,6 +339,22 @@ export function postDashboardChat(
   });
 }
 
+export function getInvoiceChat(
+  businessId: string,
+): Promise<{ businessId: string; messages: DashboardChatMessage[] }> {
+  return apiRequest(`/dashboard/${businessId}/invoice-chat`);
+}
+
+export function postInvoiceChat(
+  businessId: string,
+  text: string,
+): Promise<{ businessId: string; reply: DashboardChatMessage }> {
+  return apiRequest(`/dashboard/${businessId}/invoice-chat`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
 export function getSettings(businessId: string): Promise<SettingsResponse> {
   return apiRequest(`/settings/${businessId}`);
 }

@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,9 +8,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  MessageCircle,
   Pencil,
   Save,
   Search,
+  Send,
   Sparkles,
   X,
 } from "lucide-react";
@@ -38,6 +40,8 @@ import {
   getDashboardDocumentDetail,
   updateDocument,
   runCategoryBackfill,
+  getInvoiceChat,
+  postInvoiceChat,
 } from "@/lib/api";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
@@ -89,6 +93,11 @@ const InvoicesPage = () => {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<DocumentUpdate>({});
+
+  // Chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const dateFromStr = dateFrom ? format(dateFrom, "yyyy-MM-dd") : undefined;
   const dateToStr = dateTo ? format(dateTo, "yyyy-MM-dd") : undefined;
@@ -157,6 +166,35 @@ const InvoicesPage = () => {
       });
     },
   });
+
+  // ─── Chat queries ───
+
+  const chatQuery = useQuery({
+    queryKey: ["invoices", "chat", businessId],
+    queryFn: () => getInvoiceChat(businessId!),
+    enabled: Boolean(businessId && chatOpen),
+  });
+
+  const sendChatMutation = useMutation({
+    mutationFn: async (text: string) => postInvoiceChat(businessId!, text),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices", "chat", businessId] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      setChatInput("");
+    },
+    onError: (error) => {
+      toast({
+        title: "שליחת הודעה נכשלה",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatOpen) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatQuery.data?.messages?.length, chatOpen]);
 
   // ─── Derived State ───
 
@@ -672,6 +710,114 @@ const InvoicesPage = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ─── Floating Chat ─── */}
+      <div className="fixed bottom-6 left-6 z-50" dir="rtl">
+        <AnimatePresence>
+          {chatOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="mb-3 w-[360px] max-h-[480px] bg-card rounded-xl shadow-lg border border-border flex flex-col overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-3 border-b border-border flex items-center gap-2 shrink-0">
+                <div className="w-8 h-8 rounded-lg gradient-coral flex items-center justify-center">
+                  <MessageCircle className="w-4 h-4 text-accent-foreground" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-display font-semibold text-sm text-foreground">Amram AI</p>
+                  <p className="text-xs text-success">חשבוניות</p>
+                </div>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setChatOpen(false)}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[200px] max-h-[320px]">
+                {!chatQuery.data?.messages?.length && !chatQuery.isLoading && (
+                  <div className="text-center text-muted-foreground text-xs py-8">
+                    <p className="mb-2">שאל אותי על החשבוניות שלך</p>
+                    <div className="space-y-1 text-[11px]">
+                      <p className="bg-secondary/50 rounded-lg px-2 py-1 inline-block">הראה לי חשבוניות מ-PayPal</p>
+                      <br />
+                      <p className="bg-secondary/50 rounded-lg px-2 py-1 inline-block">שנה קטגוריה של חשבוניות ורסל</p>
+                      <br />
+                      <p className="bg-secondary/50 rounded-lg px-2 py-1 inline-block">כמה הוצאתי על תוכנה?</p>
+                    </div>
+                  </div>
+                )}
+                {(chatQuery.data?.messages ?? []).map((message) => (
+                  <div key={message.id} className={`flex ${message.from === "user" ? "justify-start" : "justify-end"}`}>
+                    <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${
+                      message.from === "user"
+                        ? "gradient-coral text-accent-foreground rounded-bl-sm"
+                        : "bg-secondary text-foreground rounded-br-sm"
+                    }`}>
+                      {message.text}
+                    </div>
+                  </div>
+                ))}
+                {sendChatMutation.isPending && (
+                  <div className="flex justify-end">
+                    <div className="bg-secondary rounded-xl px-3 py-2 rounded-br-sm">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Input */}
+              <div className="p-2 border-t border-border shrink-0">
+                <form
+                  className="flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!chatInput.trim() || sendChatMutation.isPending) return;
+                    sendChatMutation.mutate(chatInput.trim());
+                  }}
+                >
+                  <Input
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="שאל על החשבוניות..."
+                    className="h-9 text-sm"
+                    disabled={sendChatMutation.isPending}
+                  />
+                  <Button
+                    type="submit"
+                    variant="coral"
+                    size="sm"
+                    className="h-9 px-3"
+                    disabled={sendChatMutation.isPending || !chatInput.trim()}
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </form>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* FAB */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setChatOpen((o) => !o)}
+          className={cn(
+            "w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-colors",
+            chatOpen
+              ? "bg-muted text-muted-foreground"
+              : "gradient-coral text-accent-foreground",
+          )}
+        >
+          {chatOpen ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+        </motion.button>
       </div>
 
       {/* ─── Detail Sheet ─── */}

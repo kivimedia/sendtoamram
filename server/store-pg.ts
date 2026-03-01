@@ -1831,4 +1831,204 @@ export class AppStorePg {
     );
     return (result as any).rowCount ?? 0;
   }
+
+  // ─── Invoice chat tool executors ───
+
+  async chatSearchInvoices(
+    businessId: string,
+    params: { vendor?: string; category?: string; status?: string; limit?: number },
+  ): Promise<any[]> {
+    const conditions = ["business_id = $1", "status != 'IGNORED'"];
+    const values: any[] = [businessId];
+    let idx = 2;
+
+    if (params.vendor) {
+      conditions.push(`LOWER(vendor_name) LIKE $${idx}`);
+      values.push(`%${params.vendor.toLowerCase()}%`);
+      idx++;
+    }
+    if (params.category) {
+      conditions.push(`LOWER(category) = $${idx}`);
+      values.push(params.category.toLowerCase());
+      idx++;
+    }
+    if (params.status && params.status !== "all") {
+      conditions.push(`UPPER(status) = $${idx}`);
+      values.push(params.status.toUpperCase());
+      idx++;
+    }
+
+    const limit = Math.min(params.limit ?? 10, 50);
+    const rows = await this.query(
+      `SELECT vendor_name AS vendor, amount_cents AS "amountCents", category, status, issued_at AS "issuedAt"
+       FROM documents
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY issued_at DESC
+       LIMIT ${limit}`,
+      values,
+    );
+    return (rows as any[]).map((r) => ({
+      vendor: r.vendor,
+      amount: `₪${(r.amountCents / 100).toLocaleString("he-IL")}`,
+      category: r.category,
+      status: r.status,
+      date: r.issuedAt?.toISOString?.().slice(0, 10) ?? r.issuedAt,
+    }));
+  }
+
+  async chatRecategorizeInvoices(
+    businessId: string,
+    params: { vendor: string; oldCategory?: string; newCategory: string },
+  ): Promise<number> {
+    const conditions = ["business_id = $1", "LOWER(vendor_name) LIKE $2"];
+    const values: any[] = [businessId, `%${params.vendor.toLowerCase()}%`];
+    let idx = 3;
+
+    if (params.oldCategory) {
+      conditions.push(`LOWER(category) = $${idx}`);
+      values.push(params.oldCategory.toLowerCase());
+      idx++;
+    }
+
+    values.push(params.newCategory);
+    const result = await this.query(
+      `UPDATE documents SET category = $${idx}, updated_at = NOW()
+       WHERE ${conditions.join(" AND ")}`,
+      values,
+    );
+    return (result as any).rowCount ?? 0;
+  }
+
+  async chatGetInvoiceStats(
+    businessId: string,
+    params: { groupBy: string; vendor?: string; category?: string; limit?: number },
+  ): Promise<any[]> {
+    const conditions = ["business_id = $1", "status != 'IGNORED'"];
+    const values: any[] = [businessId];
+    let idx = 2;
+
+    if (params.vendor) {
+      conditions.push(`LOWER(vendor_name) LIKE $${idx}`);
+      values.push(`%${params.vendor.toLowerCase()}%`);
+      idx++;
+    }
+    if (params.category) {
+      conditions.push(`LOWER(category) = $${idx}`);
+      values.push(params.category.toLowerCase());
+      idx++;
+    }
+
+    const groupCol = params.groupBy === "vendor" ? "vendor_name" : "category";
+    const limit = Math.min(params.limit ?? 15, 50);
+
+    const rows = await this.query(
+      `SELECT ${groupCol} AS name, COUNT(*) AS count, SUM(amount_cents) AS "totalCents"
+       FROM documents
+       WHERE ${conditions.join(" AND ")}
+       GROUP BY ${groupCol}
+       ORDER BY "totalCents" DESC
+       LIMIT ${limit}`,
+      values,
+    );
+    return (rows as any[]).map((r) => ({
+      name: r.name,
+      count: Number(r.count),
+      total: `₪${(Number(r.totalCents) / 100).toLocaleString("he-IL")}`,
+    }));
+  }
+
+  async postInvoiceChat(payload: { businessId: string; text: string; userId?: string }) {
+    await this.getBusinessOrThrow(payload.businessId);
+    const channel = "INVOICE_CHAT";
+
+    // Store user message
+    await this.query(
+      `INSERT INTO conversation_messages (id, business_id, user_id, channel, direction, text)
+       VALUES ($1, $2, $3, $4, 'USER', $5)`,
+      [randomUUID(), payload.businessId, payload.userId ?? null, channel, payload.text],
+    );
+
+    let replyText: string;
+    try {
+      const { isAiEnabled, invoiceChatResponse } = await import("./services/ai");
+      if (!isAiEnabled()) throw new Error("AI not enabled");
+
+      const recentMsgs = await this.query(
+        `SELECT direction, text FROM conversation_messages
+         WHERE business_id = $1 AND channel = 'INVOICE_CHAT'
+         ORDER BY created_at DESC LIMIT 10`,
+        [payload.businessId],
+      );
+
+      const summary = await this.buildSummary(payload.businessId);
+
+      const executor = {
+        searchInvoices: (params: any) => this.chatSearchInvoices(payload.businessId, params),
+        recategorizeInvoices: (params: any) => this.chatRecategorizeInvoices(payload.businessId, params),
+        getInvoiceStats: (params: any) => this.chatGetInvoiceStats(payload.businessId, params),
+      };
+
+      replyText = await invoiceChatResponse(
+        payload.businessId,
+        payload.text,
+        (recentMsgs as any[]).reverse().map((m: any) => ({
+          role: m.direction === "USER" ? "user" as const : "assistant" as const,
+          text: m.text,
+        })),
+        {
+          businessName: summary.business.name,
+          totalDocs: summary.totals.documents,
+          totalAmountCents: summary.totals.amountCents,
+        },
+        executor,
+      );
+    } catch (err: any) {
+      console.error("[invoice-chat] Error:", err);
+      replyText = "מצטער, לא הצלחתי לעבד את הבקשה כרגע. נסה שוב.";
+    }
+
+    // Store bot reply
+    const replyId = randomUUID();
+    await this.query(
+      `INSERT INTO conversation_messages (id, business_id, user_id, channel, direction, text)
+       VALUES ($1, $2, $3, $4, 'BOT', $5)`,
+      [replyId, payload.businessId, payload.userId ?? null, channel, replyText],
+    );
+
+    const reply = await this.queryOne(
+      `SELECT id, text, created_at AS "createdAt" FROM conversation_messages WHERE id = $1`,
+      [replyId],
+    );
+
+    return {
+      businessId: payload.businessId,
+      reply: {
+        id: reply.id,
+        from: "bot" as const,
+        text: reply.text,
+        createdAt: reply.createdAt?.toISOString?.() ?? reply.createdAt,
+      },
+    };
+  }
+
+  async getInvoiceChat(businessId: string) {
+    await this.getBusinessOrThrow(businessId);
+    const rows = await this.query(
+      `SELECT id, direction, text, created_at AS "createdAt"
+       FROM conversation_messages
+       WHERE business_id = $1 AND channel = 'INVOICE_CHAT'
+       ORDER BY created_at ASC`,
+      [businessId],
+    );
+    const last50 = rows.slice(-50);
+    return {
+      businessId,
+      messages: last50.map((r: any) => ({
+        id: r.id,
+        from: r.direction === "USER" ? "user" : "bot",
+        text: r.text,
+        createdAt: r.createdAt?.toISOString?.() ?? r.createdAt,
+      })),
+    };
+  }
 }

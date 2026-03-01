@@ -147,6 +147,19 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     return store.postDashboardChat({ businessId, text: payload.text, userId: payload.userId });
   });
 
+  // ─── Invoice chat (with tool_use for actions) ───
+
+  app.get("/dashboard/:businessId/invoice-chat", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    return store.getInvoiceChat(businessId);
+  });
+
+  app.post("/dashboard/:businessId/invoice-chat", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    const payload = chatMessageSchema.parse(request.body);
+    return store.postInvoiceChat({ businessId, text: payload.text, userId: payload.userId });
+  });
+
   app.post("/dashboard/:businessId/send-to-accountant", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
     const body = sendToAccountantSchema.parse(request.body ?? {});
