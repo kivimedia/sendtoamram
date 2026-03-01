@@ -547,11 +547,11 @@ export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
     <div className="space-y-2">
       {steps.map((step) => (
         <div key={step.label} className="space-y-1">
-          <div className="flex items-center gap-2 text-xs">
+          <div className="text-xs">
             <span className={step.active ? "text-foreground font-medium" : step.done ? "text-success" : "text-muted-foreground"}>
               {step.done ? "✓" : step.active ? "●" : "○"} {step.label}
             </span>
-            <span className="text-muted-foreground">{step.detail}</span>
+            {step.detail && <span className="text-muted-foreground mr-2">{step.detail}</span>}
           </div>
           {(step.active || step.done) && step.percent !== undefined && (
             <Progress
