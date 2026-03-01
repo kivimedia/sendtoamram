@@ -460,7 +460,7 @@ export function DeepScanExpandedProgress({ businessId }: DeepScanProgressProps) 
     <motion.div
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: "auto" }}
-      className="bg-card rounded-xl p-4 shadow-card border border-border space-y-3 mb-6 relative overflow-hidden"
+      className="bg-card rounded-xl p-4 shadow-card border border-border space-y-3 mb-3 relative overflow-hidden"
     >
       <ConfettiBurst burstKey={burstKey} />
 
@@ -547,7 +547,7 @@ export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
     <div className="space-y-2">
       {steps.map((step) => (
         <div key={step.label} className="space-y-1">
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-xs">
             <span className={step.active ? "text-foreground font-medium" : step.done ? "text-success" : "text-muted-foreground"}>
               {step.done ? "✓" : step.active ? "●" : "○"} {step.label}
             </span>

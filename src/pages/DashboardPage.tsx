@@ -362,6 +362,7 @@ const DashboardPage = () => {
           change: `${summary.month.documentsDelta >= 0 ? "+" : ""}${summary.month.documentsDelta}`,
           icon: FileText,
           trend: "up",
+          totalRef: `סה״כ ${summary.totals.documents.toLocaleString("he-IL")}`,
         },
         {
           label: "סכום החודש",
@@ -369,6 +370,7 @@ const DashboardPage = () => {
           change: `${summary.month.amountDeltaPercent >= 0 ? "+" : ""}${summary.month.amountDeltaPercent}%`,
           icon: TrendingUp,
           trend: "up",
+          totalRef: `סה״כ ${formatAmount(summary.totals.amountCents)}`,
         },
         {
           label: `נשלח ל${summary.business.accountantName}`,
@@ -613,7 +615,12 @@ const DashboardPage = () => {
                     )}
                   </div>
                   <p className="font-display font-bold text-2xl text-foreground">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                    {"totalRef" in stat && stat.totalRef && (
+                      <p className="text-xs text-muted-foreground/60">{stat.totalRef}</p>
+                    )}
+                  </div>
                 </motion.div>
               ))}
           </div>
