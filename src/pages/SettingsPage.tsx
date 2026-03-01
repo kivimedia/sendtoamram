@@ -63,6 +63,7 @@ const SettingsPage = () => {
   const [whatsAppName, setWhatsAppName] = useState("");
   const [whatsAppQrDataUrl, setWhatsAppQrDataUrl] = useState<string | null>(null);
   const [whatsAppRuntimeStatus, setWhatsAppRuntimeStatus] = useState<string | null>(null);
+  const [whatsAppQrLoading, setWhatsAppQrLoading] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -221,6 +222,23 @@ const SettingsPage = () => {
       });
     },
   });
+
+  const showWhatsAppQr = async () => {
+    if (!businessId) return;
+    setWhatsAppQrLoading(true);
+    try {
+      const session = await getWhatsAppSession(businessId);
+      setWhatsAppRuntimeStatus(session.status);
+      setWhatsAppQrDataUrl(session.qrDataUrl);
+      if (session.status === "idle" || (!session.qrDataUrl && session.status !== "connected")) {
+        connectWhatsAppMutation.mutate();
+      }
+    } catch {
+      toast({ title: "לא ניתן לטעון QR", variant: "destructive" });
+    } finally {
+      setWhatsAppQrLoading(false);
+    }
+  };
 
   const startOAuth = async (provider: "gmail" | "outlook") => {
     try {
@@ -391,30 +409,62 @@ const SettingsPage = () => {
                     </SettingsCard>
 
                     <SettingsCard title="WhatsApp">
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <Field label="מספר ראשי (E.164)">
-                          <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" dir="ltr" />
-                        </Field>
-                        <Field label="שם איש קשר">
-                          <Input value={whatsAppName} onChange={(event) => setWhatsAppName(event.target.value)} placeholder="שם בעל העסק" className="h-11" />
-                        </Field>
-                      </div>
-                      {whatsAppQrDataUrl && (
-                        <div className="mt-4">
-                          <img src={whatsAppQrDataUrl} alt="WhatsApp QR" className="w-44 h-44 rounded-lg border border-border bg-white p-2" />
-                          <p className="text-xs text-muted-foreground mt-2">
-                            סרוק עם WhatsApp - פתח מכשירים מקושרים ולחץ על קשר מכשיר.
-                          </p>
-                        </div>
-                      )}
-                      <div className="mt-4 flex flex-wrap items-center gap-3">
-                        <Button variant="coral" onClick={() => connectWhatsAppMutation.mutate()} disabled={connectWhatsAppMutation.isPending}>
-                          {connectWhatsAppMutation.isPending ? "מתחבר..." : "חבר WhatsApp"}
-                        </Button>
-                        <span className="text-sm text-muted-foreground">
-                          סטטוס: {whatsAppRuntimeStatus ?? data.whatsapp?.status ?? "לא פעיל"} {data.whatsapp?.lastError ? `· ${data.whatsapp.lastError}` : ""}
-                        </span>
-                      </div>
+                      {(() => {
+                        const status = whatsAppRuntimeStatus ?? data.whatsapp?.status ?? "idle";
+                        const isConnected = status === "connected";
+                        return (
+                          <>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <Field label="מספר ראשי (E.164)">
+                                <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" dir="ltr" />
+                              </Field>
+                              <Field label="שם איש קשר">
+                                <Input value={whatsAppName} onChange={(event) => setWhatsAppName(event.target.value)} placeholder="שם בעל העסק" className="h-11" />
+                              </Field>
+                            </div>
+
+                            {isConnected && (
+                              <div className="mt-4 flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/30">
+                                <div className="w-2.5 h-2.5 rounded-full bg-success animate-pulse" />
+                                <span className="text-sm font-medium text-success">WhatsApp מחובר</span>
+                                {data.whatsapp?.customerPhoneE164 && (
+                                  <span className="text-sm text-muted-foreground" dir="ltr">{data.whatsapp.customerPhoneE164}</span>
+                                )}
+                              </div>
+                            )}
+
+                            {whatsAppQrDataUrl && !isConnected && (
+                              <div className="mt-4">
+                                <img src={whatsAppQrDataUrl} alt="WhatsApp QR" className="w-44 h-44 rounded-lg border border-border bg-white p-2" />
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  סרוק עם WhatsApp - פתח מכשירים מקושרים ולחץ על קשר מכשיר.
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="mt-4 flex flex-wrap items-center gap-3">
+                              {!isConnected && (
+                                <Button variant="coral" onClick={() => connectWhatsAppMutation.mutate()} disabled={connectWhatsAppMutation.isPending}>
+                                  {connectWhatsAppMutation.isPending ? "מתחבר..." : "חבר WhatsApp"}
+                                </Button>
+                              )}
+                              {!isConnected && !whatsAppQrDataUrl && data.whatsapp && (
+                                <Button variant="outline" onClick={showWhatsAppQr} disabled={whatsAppQrLoading}>
+                                  {whatsAppQrLoading ? "טוען..." : "הצג QR"}
+                                </Button>
+                              )}
+                              {isConnected && (
+                                <Button variant="outline" onClick={() => connectWhatsAppMutation.mutate()} disabled={connectWhatsAppMutation.isPending}>
+                                  {connectWhatsAppMutation.isPending ? "מחבר מחדש..." : "חבר מחדש"}
+                                </Button>
+                              )}
+                              <span className="text-sm text-muted-foreground">
+                                סטטוס: {status === "connected" ? "מחובר" : status === "connecting" ? "מתחבר" : status === "qr" ? "ממתין לסריקה" : status === "failed" ? "נכשל" : "לא פעיל"} {data.whatsapp?.lastError ? `· ${data.whatsapp.lastError}` : ""}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </SettingsCard>
                   </div>
                 )}
