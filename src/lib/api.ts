@@ -478,6 +478,25 @@ export function getDashboardCategories(businessId: string): Promise<CategoriesRe
   return apiRequest(`/dashboard/${businessId}/categories`);
 }
 
+// ─── Analytics ───
+
+export interface AnalyticsResponse {
+  byCategory: Array<{ category: string; totalCents: number; count: number }>;
+  byMonth: Array<{ monthKey: string; totalCents: number; count: number }>;
+}
+
+export function getDashboardAnalytics(
+  businessId: string,
+  fromDate?: string,
+  toDate?: string,
+): Promise<AnalyticsResponse> {
+  const searchParams = new URLSearchParams();
+  if (fromDate) searchParams.set("fromDate", fromDate);
+  if (toDate) searchParams.set("toDate", toDate);
+  const qs = searchParams.toString();
+  return apiRequest(`/dashboard/${businessId}/analytics${qs ? `?${qs}` : ""}`);
+}
+
 // ─── Missing Receipt Alerts ───
 
 export interface MissingReceiptAlert {

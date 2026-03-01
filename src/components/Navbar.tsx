@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { Menu, X, User } from "lucide-react";
+import { Menu, X, User, FileText } from "lucide-react";
 import { useState } from "react";
 import { getAuthToken } from "@/lib/session";
 
@@ -37,11 +37,18 @@ const Navbar = () => {
 
         <div className="hidden md:flex items-center gap-3">
           {isLoggedIn ? (
-            <Link to="/dashboard">
-              <Button variant="coral" size="sm" className="gap-2">
-                <User className="w-4 h-4" /> דשבורד
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link to="/invoices">
+                <Button variant="nav" size="sm" className="gap-1.5">
+                  <FileText className="w-4 h-4" /> חשבוניות
+                </Button>
+              </Link>
+              <Link to="/dashboard">
+                <Button variant="coral" size="sm" className="gap-2">
+                  <User className="w-4 h-4" /> דשבורד
+                </Button>
+              </Link>
+            </div>
           ) : (
             <>
               <Link to="/onboarding">
@@ -71,11 +78,18 @@ const Navbar = () => {
               </>
             )}
             {isLoggedIn ? (
-              <Link to="/dashboard" onClick={() => setMobileOpen(false)}>
-                <Button variant="coral" className="w-full gap-2">
-                  <User className="w-4 h-4" /> דשבורד
-                </Button>
-              </Link>
+              <>
+                <Link to="/invoices" onClick={() => setMobileOpen(false)}>
+                  <Button variant="nav" className="w-full gap-2">
+                    <FileText className="w-4 h-4" /> חשבוניות
+                  </Button>
+                </Link>
+                <Link to="/dashboard" onClick={() => setMobileOpen(false)}>
+                  <Button variant="coral" className="w-full gap-2">
+                    <User className="w-4 h-4" /> דשבורד
+                  </Button>
+                </Link>
+              </>
             ) : (
               <Link to="/onboarding" onClick={() => setMobileOpen(false)}>
                 <Button variant="coral" className="w-full">התחל בחינם</Button>

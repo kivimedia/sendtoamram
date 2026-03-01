@@ -57,6 +57,12 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     return store.getDashboardSummary(businessId);
   });
 
+  app.get("/dashboard/:businessId/analytics", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    const { fromDate, toDate } = sendToAccountantSchema.parse(request.query);
+    return store.getDashboardAnalytics(businessId, fromDate, toDate);
+  });
+
   app.get("/dashboard/:businessId/documents", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
     const query = documentQuerySchema.parse(request.query);

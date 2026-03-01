@@ -67,28 +67,7 @@ import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
 import DeepScanProgress, { DeepScanExpandedProgress, useDeepScan } from "@/components/DeepScanProgress";
 
-const statusConfig: Record<string, { label: string; className: string; icon: typeof Check }> = {
-  sent: { label: "נשלח", className: "bg-success/10 text-success", icon: Check },
-  pending: { label: "ממתין", className: "bg-warning/10 text-warning", icon: Clock },
-  review: { label: "לבדיקה", className: "bg-coral-light text-coral", icon: AlertTriangle },
-  ignored: { label: "התעלם", className: "bg-muted text-muted-foreground", icon: X },
-};
-
-const sourceIcons: Record<string, string> = {
-  gmail: "📧",
-  outlook: "📬",
-  imap: "✉️",
-  whatsapp: "💬",
-};
-
-function formatAmount(cents: number | null | undefined): string {
-  if (cents === null || cents === undefined || cents === 0) return "ממתין לחילוץ";
-  return `₪${(cents / 100).toLocaleString("he-IL", { maximumFractionDigits: 0 })}`;
-}
-
-function formatDate(dateIso: string): string {
-  return new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "short", year: "numeric" }).format(new Date(dateIso));
-}
+import { statusConfig, sourceIcons, formatAmount, formatDate } from "@/lib/invoice-utils";
 
 const DashboardPage = () => {
   const businessId = getActiveBusinessId();

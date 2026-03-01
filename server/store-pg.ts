@@ -632,6 +632,51 @@ export class AppStorePg {
     return this.buildSummary(businessId);
   }
 
+  async getDashboardAnalytics(businessId: string, fromDate?: string, toDate?: string) {
+    await this.getBusinessOrThrow(businessId);
+
+    const conditions: string[] = [];
+    const params: any[] = [businessId];
+
+    if (fromDate) {
+      params.push(fromDate);
+      conditions.push(`AND d.issued_at >= $${params.length}`);
+    }
+    if (toDate) {
+      const end = new Date(toDate);
+      end.setDate(end.getDate() + 1);
+      params.push(end.toISOString().slice(0, 10));
+      conditions.push(`AND d.issued_at < $${params.length}`);
+    }
+
+    const whereExtra = conditions.join(" ");
+
+    const byCategory = await this.query(
+      `SELECT COALESCE(d.category, 'כללי') AS category,
+              COALESCE(SUM(d.amount_cents), 0)::int AS "totalCents",
+              COUNT(*)::int AS count
+       FROM documents d
+       WHERE d.business_id = $1 AND d.status != 'IGNORED' ${whereExtra}
+       GROUP BY COALESCE(d.category, 'כללי')
+       ORDER BY "totalCents" DESC`,
+      params,
+    );
+
+    const byMonth = await this.query(
+      `SELECT to_char(d.issued_at, 'YYYY-MM') AS "monthKey",
+              COALESCE(SUM(d.amount_cents), 0)::int AS "totalCents",
+              COUNT(*)::int AS count
+       FROM documents d
+       WHERE d.business_id = $1 AND d.status != 'IGNORED' ${whereExtra}
+       GROUP BY to_char(d.issued_at, 'YYYY-MM')
+       ORDER BY "monthKey" DESC
+       LIMIT 12`,
+      params,
+    );
+
+    return { byCategory, byMonth: byMonth.reverse() };
+  }
+
   async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50, fromDate?: string, toDate?: string) {
     await this.getBusinessOrThrow(businessId);
 
