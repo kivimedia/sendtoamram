@@ -6,6 +6,8 @@ import {
   ArrowUpLeft,
   ArrowRight,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Download,
   Eye,
@@ -87,6 +89,7 @@ const DashboardPage = () => {
   const businessId = getActiveBusinessId();
   const [chatInput, setChatInput] = useState("");
   const [activeTab, setActiveTab] = useState<DocumentFilter>("all");
+  const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -103,9 +106,10 @@ const DashboardPage = () => {
   });
 
   const documentsQuery = useQuery({
-    queryKey: ["dashboard", "documents", businessId, activeTab],
-    queryFn: () => getDashboardDocuments(businessId as string, activeTab),
+    queryKey: ["dashboard", "documents", businessId, activeTab, page],
+    queryFn: () => getDashboardDocuments(businessId as string, activeTab, page),
     enabled: Boolean(businessId),
+    placeholderData: (prev) => prev,
   });
 
   const chatQuery = useQuery({
@@ -654,7 +658,7 @@ const DashboardPage = () => {
                       {(["all", "pending", "review"] as const).map((tab) => (
                         <button
                           key={tab}
-                          onClick={() => setActiveTab(tab)}
+                          onClick={() => { setActiveTab(tab); setPage(1); }}
                           className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                             activeTab === tab ? "bg-coral text-accent-foreground" : "text-muted-foreground hover:text-foreground"
                           }`}
@@ -734,6 +738,59 @@ const DashboardPage = () => {
                       );
                     })}
                 </div>
+
+                {/* Pagination */}
+                {documentsQuery.data && documentsQuery.data.totalPages > 1 && (
+                  <div className="flex items-center justify-between p-3 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
+                      {documentsQuery.data.total.toLocaleString("he-IL")} מסמכים - עמוד {page} מתוך {documentsQuery.data.totalPages}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={page <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                      {Array.from({ length: Math.min(5, documentsQuery.data.totalPages) }, (_, i) => {
+                        const totalPages = documentsQuery.data!.totalPages;
+                        let pageNum: number;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (page <= 3) {
+                          pageNum = i + 1;
+                        } else if (page >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = page - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={pageNum === page ? "default" : "ghost"}
+                            size="icon"
+                            className={`h-7 w-7 text-xs ${pageNum === page ? "bg-coral text-accent-foreground" : ""}`}
+                            onClick={() => setPage(pageNum)}
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        disabled={page >= (documentsQuery.data?.totalPages ?? 1)}
+                        onClick={() => setPage((p) => Math.min(documentsQuery.data?.totalPages ?? 1, p + 1))}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

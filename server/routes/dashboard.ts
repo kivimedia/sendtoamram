@@ -11,6 +11,8 @@ const businessParamsSchema = z.object({
 
 const documentQuerySchema = z.object({
   status: z.enum(["all", "sent", "pending", "review"]).default("all"),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
 const chatMessageSchema = z.object({
@@ -49,7 +51,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   app.get("/dashboard/:businessId/documents", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
     const query = documentQuerySchema.parse(request.query);
-    return store.getDashboardDocuments(businessId, query.status);
+    return store.getDashboardDocuments(businessId, query.status, query.page, query.limit);
   });
 
   app.get("/dashboard/:businessId/documents/:documentId", async (request) => {

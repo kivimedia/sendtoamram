@@ -276,11 +276,22 @@ export function sendToAccountant(
   return apiRequest(`/dashboard/${businessId}/send-to-accountant`, { method: "POST" });
 }
 
+export interface PaginatedDocuments {
+  businessId: string;
+  documents: DashboardDocument[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export function getDashboardDocuments(
   businessId: string,
   status: DocumentFilter,
-): Promise<{ businessId: string; documents: DashboardDocument[] }> {
-  return apiRequest(`/dashboard/${businessId}/documents?status=${status}`);
+  page = 1,
+  limit = 50,
+): Promise<PaginatedDocuments> {
+  return apiRequest(`/dashboard/${businessId}/documents?status=${status}&page=${page}&limit=${limit}`);
 }
 
 export function getDashboardDocumentDetail(

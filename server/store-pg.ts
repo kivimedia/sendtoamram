@@ -632,7 +632,7 @@ export class AppStorePg {
     return this.buildSummary(businessId);
   }
 
-  async getDashboardDocuments(businessId: string, status: string) {
+  async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50) {
     await this.getBusinessOrThrow(businessId);
 
     const statusFilter = status === "all" ? "" : "AND d.status = $2";
@@ -640,6 +640,18 @@ export class AppStorePg {
     if (status !== "all") {
       params.push(status.toUpperCase());
     }
+
+    // Get total count
+    const countResult = await this.queryOne(
+      `SELECT COUNT(*) AS total FROM documents d WHERE d.business_id = $1 ${statusFilter}`,
+      params,
+    );
+    const total = parseInt(countResult.total, 10);
+
+    const offset = (page - 1) * limit;
+    const paginatedParams = [...params, limit, offset];
+    const limitIdx = paginatedParams.length - 1;
+    const offsetIdx = paginatedParams.length;
 
     const rows = await this.query(
       `SELECT d.id, d.vendor_name AS vendor, d.amount_cents AS "amountCents",
@@ -649,8 +661,9 @@ export class AppStorePg {
        FROM documents d
        LEFT JOIN inbox_connections ic ON ic.id = d.inbox_connection_id
        WHERE d.business_id = $1 ${statusFilter}
-       ORDER BY d.issued_at DESC`,
-      params,
+       ORDER BY d.issued_at DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      paginatedParams,
     );
 
     return {
@@ -668,6 +681,10 @@ export class AppStorePg {
         type: r.type.toLowerCase(),
         confidence: parseFloat(r.confidence),
       })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
