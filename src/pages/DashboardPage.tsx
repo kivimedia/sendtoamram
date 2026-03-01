@@ -4,6 +4,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpLeft,
+  ArrowRight,
   Check,
   Clock,
   Download,
@@ -22,6 +23,7 @@ import {
   CreditCard,
   Sparkles,
   X,
+  ChevronDown,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -51,10 +53,11 @@ import {
   getDashboardCategories,
   getDashboardAlerts,
   dismissAlert,
+  getOAuthStartUrl,
 } from "@/lib/api";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
-import DeepScanProgress, { DeepScanExpandedProgress } from "@/components/DeepScanProgress";
+import DeepScanProgress, { DeepScanExpandedProgress, useDeepScan } from "@/components/DeepScanProgress";
 
 const statusConfig: Record<string, { label: string; className: string; icon: typeof Check }> = {
   sent: { label: "נשלח", className: "bg-success/10 text-success", icon: Check },
@@ -88,6 +91,7 @@ const DashboardPage = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<DocumentUpdate>({});
   const [customCategory, setCustomCategory] = useState("");
+  const [showMoreActions, setShowMoreActions] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -284,10 +288,34 @@ const DashboardPage = () => {
     },
   });
 
+  const deepScan = useDeepScan(businessId as string);
+
+  const connectGmailMutation = useMutation({
+    mutationFn: async () => getOAuthStartUrl(businessId as string, "gmail"),
+    onSuccess: (data) => {
+      window.location.href = data.authUrl;
+    },
+    onError: (error) => {
+      toast({
+        title: "שגיאה בחיבור Gmail",
+        description: error instanceof Error ? error.message : "אירעה שגיאה",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Billing state from summary
   const summary = summaryQuery.data;
   const billing = summary?.billing;
   const isPaid = !billing || (billing.onboardingPaid && billing.subscriptionStatus === "active");
+
+  // Fresh user detection
+  const hasInbox = (summary?.totals?.connectedInboxes ?? 0) > 0;
+  const hasDocuments = (summary?.month?.documents ?? 0) > 0 || (summary?.totals?.sent ?? 0) > 0;
+  const scanData = deepScan.statusQuery.data;
+  const hasScanEver = Boolean(scanData?.scanJobId);
+  const scanActive = Boolean(scanData?.active);
+  const isFreshUser = isPaid && summary && !hasDocuments && !scanActive && !hasScanEver;
 
   const filteredDocuments = useMemo(() => {
     const docs = documentsQuery.data?.documents ?? [];
@@ -360,43 +388,111 @@ const DashboardPage = () => {
               </h1>
               <p className="text-muted-foreground">
                 {summary
-                  ? `${summary.business.accountantName} קיבל/ה ${summary.totals.sent} מסמכים. אתה על אוטופיילוט.`
+                  ? isFreshUser
+                    ? "בוא נתחיל לסרוק את החשבוניות שלך."
+                    : `${summary.business.accountantName} קיבל/ה ${summary.totals.sent} מסמכים. אתה על אוטופיילוט.`
                   : "טוען נתוני דשבורד..."}
               </p>
             </div>
-            <div className="flex gap-3 flex-wrap">
-              <Link to="/settings">
-                <Button variant="outline" size="sm">⚙️ הגדרות</Button>
-              </Link>
-              {isPaid && <DeepScanProgress businessId={businessId as string} />}
-              {isPaid && (
+            {/* Show compact toolbar only when user has documents or active scan */}
+            {isPaid && !isFreshUser && (
+              <div className="flex gap-2 flex-wrap items-center">
+                <DeepScanProgress businessId={businessId as string} />
                 <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
                   <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                   {syncMutation.isPending ? "מסנכרן..." : "סנכרן עכשיו"}
                 </Button>
-              )}
-              {isPaid && (
                 <Button variant="coral" size="sm" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
                   <Send className="w-4 h-4" /> {sendMutation.isPending ? "שולח..." : "שלח לרואה חשבון"}
                 </Button>
-              )}
-              {isPaid && (
-                <Button variant="outline" size="sm" onClick={() => pdfMutation.mutate()} disabled={pdfMutation.isPending}>
-                  <FileText className="w-4 h-4" /> {pdfMutation.isPending ? "מוריד..." : "PDF חודשי"}
-                </Button>
-              )}
-              {isPaid && (
-                <Button variant="outline" size="sm" onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}>
-                  <Download className="w-4 h-4" /> {exportMutation.isPending ? "מייצא..." : "ייצוא CSV"}
-                </Button>
-              )}
-              {isPaid && billing && (
-                <Button variant="ghost" size="sm" onClick={() => portalMutation.mutate()} disabled={portalMutation.isPending}>
-                  <CreditCard className="w-4 h-4" /> ניהול מנוי
-                </Button>
-              )}
-            </div>
+                <div className="relative">
+                  <Button variant="outline" size="sm" onClick={() => setShowMoreActions(!showMoreActions)}>
+                    <ChevronDown className="w-4 h-4" /> עוד
+                  </Button>
+                  {showMoreActions && (
+                    <div className="absolute left-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[160px] py-1">
+                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { pdfMutation.mutate(); setShowMoreActions(false); }}>
+                        <FileText className="w-4 h-4" /> PDF חודשי
+                      </button>
+                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { exportMutation.mutate(); setShowMoreActions(false); }}>
+                        <Download className="w-4 h-4" /> ייצוא CSV
+                      </button>
+                      <Link to="/settings" className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => setShowMoreActions(false)}>
+                        ⚙️ הגדרות
+                      </Link>
+                      {billing && (
+                        <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { portalMutation.mutate(); setShowMoreActions(false); }}>
+                          <CreditCard className="w-4 h-4" /> ניהול מנוי
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Getting Started Hero - for fresh paid users */}
+          {isPaid && isFreshUser && !summaryQuery.isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-8"
+            >
+              <div className="rounded-xl bg-gradient-to-l from-coral/90 to-coral p-8 text-white shadow-card">
+                <div className="max-w-xl mx-auto text-center space-y-6">
+                  <h2 className="font-display text-2xl font-bold text-white">
+                    {!hasInbox ? "חבר את תיבת הדואר שלך" : "התחל סריקה עמוקה"}
+                  </h2>
+                  <p className="text-white/90">
+                    {!hasInbox
+                      ? "חבר את Gmail שלך כדי שנוכל לסרוק חשבוניות מ-3 השנים האחרונות ולשלוח אותן אוטומטית לרואה החשבון."
+                      : "התיבה מחוברת! לחץ כדי לסרוק את כל החשבוניות מ-3 השנים האחרונות. הסריקה פועלת ברקע."}
+                  </p>
+                  {!hasInbox ? (
+                    <button
+                      className="inline-flex items-center justify-center gap-3 rounded-xl px-8 py-4 text-lg font-bold bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                      onClick={() => connectGmailMutation.mutate()}
+                      disabled={connectGmailMutation.isPending}
+                    >
+                      <Mail className="w-5 h-5" />
+                      {connectGmailMutation.isPending ? "מתחבר..." : "חבר Gmail"}
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  ) : (
+                    <button
+                      className="inline-flex items-center justify-center gap-3 rounded-xl px-8 py-4 text-lg font-bold bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                      onClick={() => deepScan.startMutation.mutate()}
+                      disabled={deepScan.startMutation.isPending}
+                    >
+                      <Search className="w-5 h-5" />
+                      {deepScan.startMutation.isPending ? "מתחיל סריקה..." : "התחל סריקה עמוקה"}
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  )}
+                  <div className="flex justify-center gap-6 text-sm text-white/70">
+                    <span className={`flex items-center gap-1.5 ${hasInbox ? "text-white" : ""}`}>
+                      {hasInbox ? <Check className="w-4 h-4" /> : <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />}
+                      חיבור תיבת דואר
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />
+                      סריקה עמוקה
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />
+                      שליחה לרואה חשבון
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-center mt-3">
+                <Link to="/settings" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  ⚙️ הגדרות
+                </Link>
+              </div>
+            </motion.div>
+          )}
 
           {!isPaid && !summaryQuery.isLoading && (
             <motion.div
