@@ -36,7 +36,7 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
     },
   );
 
-  // Create checkout session (onboarding $10 + monthly $5 subscription)
+  // Create checkout session ($13 setup fee now, $7/month starting month 2)
   app.post<{ Params: { businessId: string } }>(
     "/billing/:businessId/create-checkout",
     async (request, reply) => {
@@ -67,30 +67,42 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
           await store.updateBusinessBilling(businessId, { stripeCustomerId: customerId });
         }
 
-        // Pre-create an invoice item for the one-time setup fee
-        // This gets added to the subscription's first invoice automatically
+        // Clear any orphaned pending invoice items from previous failed attempts
+        const pendingItems = await stripe.invoiceItems.list({
+          customer: customerId!,
+          pending: true,
+        });
+        for (const item of pendingItems.data) {
+          await stripe.invoiceItems.del(item.id);
+        }
+
+        // Pre-create an invoice item for the one-time setup fee ($13)
+        // This gets charged immediately on the first invoice
         await stripe.invoiceItems.create({
           customer: customerId!,
           amount: ONBOARDING_AMOUNT,
           currency: "usd",
-          description: "SendToAmram — Account Setup (one-time)",
+          description: "SendToAmram - Account Setup (one-time)",
         });
 
         const session = await stripe.checkout.sessions.create({
           customer: customerId,
           mode: "subscription",
           line_items: [
-            // Monthly subscription
+            // Monthly subscription - starts after 30-day trial
             {
               price_data: {
                 currency: "usd",
-                product_data: { name: "SendToAmram — Monthly Plan" },
+                product_data: { name: "SendToAmram - Monthly Plan" },
                 unit_amount: MONTHLY_AMOUNT,
                 recurring: { interval: "month" },
               },
               quantity: 1,
             },
           ],
+          subscription_data: {
+            trial_period_days: 30,
+          },
           success_url: `${baseUrl}/onboarding?payment=success&businessId=${businessId}`,
           cancel_url: `${baseUrl}/onboarding?payment=cancelled&businessId=${businessId}`,
           metadata: { businessId },
