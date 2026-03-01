@@ -173,7 +173,7 @@ const OnboardingPage = () => {
             // Just paid — go to deep scan progress
             setStep(5);
           } else if (state.connectedInboxes.length > 0) {
-            setStep(1);
+            setStep(2);
           }
         })
         .catch((error) => {
@@ -198,14 +198,14 @@ const OnboardingPage = () => {
         title: "חיבור הצליח",
         description: `תיבת ${provider} חוברה בהצלחה.`,
       });
-      setStep(1);
+      setStep(2);
     } else if (oauthStatus === "error") {
       toast({
         title: "חיבור נכשל",
         description: message ?? "אירעה שגיאה בחיבור תיבת הדואר.",
         variant: "destructive",
       });
-      setStep(1);
+      setStep(2);
     }
 
     if (paymentStatus === "cancelled") {
@@ -419,7 +419,7 @@ const OnboardingPage = () => {
                 onClick={() => {
                   setIsReturningUser(true);
                   setNeedsPasswordOnly(false);
-                  setStep(2);
+                  setStep(1);
                 }}
               >
                 יש לי כבר חשבון - התחבר
@@ -427,8 +427,8 @@ const OnboardingPage = () => {
             </motion.div>
           )}
 
-          {/* ── Step 1: Connect Email ── */}
-          {step === 1 && (
+          {/* ── Step 2: Connect Email ── */}
+          {step === 2 && (
             <motion.div
               key="step1"
               variants={slideVariants}
@@ -529,49 +529,27 @@ const OnboardingPage = () => {
               </div>
 
               <div className="flex gap-3">
-                <Button variant="outline" onClick={() => setStep(0)} className="h-12">
+                <Button variant="outline" onClick={() => setStep(1)} className="h-12">
                   <ArrowRight className="w-4 h-4" />
                 </Button>
                 <Button
                   variant="coral"
                   className="flex-1 h-12"
-                  onClick={async () => {
-                    const inboxEmail = selectedLoginEmail || (connectedInboxes[0]?.email ?? "");
-                    if (inboxEmail) {
-                      setSignupEmail(inboxEmail);
-                      try {
-                        const check = await checkEmailExists(inboxEmail);
-                        if (check.hasPassword) {
-                          setIsReturningUser(true);
-                          setNeedsPasswordOnly(false);
-                          setStep(2);
-                          return;
-                        }
-                        if (check.exists) {
-                          // User exists via OAuth but no password yet
-                          setIsReturningUser(false);
-                          setNeedsPasswordOnly(true);
-                          setStep(2);
-                          return;
-                        }
-                      } catch {
-                        // ignore - default to signup
-                      }
-                    }
-                    setIsReturningUser(false);
-                    setNeedsPasswordOnly(false);
-                    setStep(2);
-                  }}
-                  disabled={connectedInboxes.length === 0}
+                  onClick={() => handleQuickScan()}
+                  disabled={connectedInboxes.length === 0 || isQuickScanning}
                 >
-                  המשך <ArrowLeft className="w-4 h-4" />
+                  {isQuickScanning ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> סורק...</>
+                  ) : (
+                    <>המשך <ArrowLeft className="w-4 h-4" /></>
+                  )}
                 </Button>
               </div>
             </motion.div>
           )}
 
-          {/* ── Step 2: Login (returning) or Create Account (new) ── */}
-          {step === 2 && (
+          {/* ── Step 1: Login (returning) or Create Account (new) ── */}
+          {step === 1 && (
             <motion.div
               key="step2-auth"
               variants={slideVariants}
@@ -627,7 +605,8 @@ const OnboardingPage = () => {
                             setActiveBusinessId(result.businessId);
                             setBusinessId(result.businessId);
                             toast({ title: "הסיסמה אופסה בהצלחה!" });
-                            handleQuickScan();
+                            setIsSigningUp(false);
+                            setStep(2);
                           } else {
                             toast({ title: "הסיסמה אופסה. התחבר עם הסיסמה החדשה." });
                             setResetMode("none");
@@ -709,7 +688,7 @@ const OnboardingPage = () => {
                   {!isReturningUser && <div className="mb-4" />}
 
                   <div className="flex gap-3">
-                    <Button variant="outline" onClick={() => setStep(1)} className="h-12">
+                    <Button variant="outline" onClick={() => setStep(0)} className="h-12">
                       <ArrowRight className="w-4 h-4" />
                     </Button>
                     <Button
@@ -761,7 +740,8 @@ const OnboardingPage = () => {
                               fullName: signupFullName || undefined,
                             });
                             setAuthToken(result.token);
-                            handleQuickScan();
+                            setIsSigningUp(false);
+                            setStep(2);
                           } catch (error) {
                             const msg = error instanceof Error ? error.message : "";
                             const isAlreadyExists = msg.toLowerCase().includes("already") || msg.includes("כבר");
@@ -787,21 +767,21 @@ const OnboardingPage = () => {
                       }}
                       disabled={isSigningUp || !signupEmail || signupPassword.length < (isReturningUser ? 1 : 8) || (!isReturningUser && !businessId)}
                     >
-                      {isSigningUp || isQuickScanning ? (
+                      {isSigningUp ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" /> {isQuickScanning ? "סורק..." : isReturningUser ? "מתחבר..." : needsPasswordOnly ? "שומר..." : "יוצר חשבון..."}
+                          <Loader2 className="w-4 h-4 animate-spin" /> {isReturningUser ? "מתחבר..." : needsPasswordOnly ? "שומר..." : "יוצר חשבון..."}
                         </>
                       ) : isReturningUser ? (
                         <>
-                          התחבר וסרוק <ArrowLeft className="w-4 h-4" />
+                          התחבר <ArrowLeft className="w-4 h-4" />
                         </>
                       ) : needsPasswordOnly ? (
                         <>
-                          שמור סיסמה וסרוק <ArrowLeft className="w-4 h-4" />
+                          שמור סיסמה והמשך <ArrowLeft className="w-4 h-4" />
                         </>
                       ) : (
                         <>
-                          צור חשבון וסרוק <ArrowLeft className="w-4 h-4" />
+                          צור חשבון והמשך <ArrowLeft className="w-4 h-4" />
                         </>
                       )}
                     </Button>

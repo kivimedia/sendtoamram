@@ -42,7 +42,7 @@ export function useDeepScan(businessId: string) {
     mutationFn: () => startDeepScan(businessId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["deep-scan", "status", businessId] });
-      toast({ title: "סריקה עמוקה התחילה", description: "מחפש חשבוניות ב-10 שנים האחרונות..." });
+      toast({ title: "סריקה עמוקה התחילה", description: "מחפש חשבוניות מ-3 השנים האחרונות..." });
     },
     onError: (error) => {
       toast({
@@ -204,7 +204,7 @@ export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
       percent: data.discovery?.isComplete ? 100 : undefined,
     },
     {
-      label: "סריקה מהירה",
+      label: "סינון חשבוניות",
       done: data.status === "AI_PASS" || data.status === "COMPLETED",
       active: data.status === "PROCESSING",
       detail: data.processing
