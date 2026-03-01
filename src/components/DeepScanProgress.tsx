@@ -98,9 +98,14 @@ function useElapsedTimer(startedAt?: string) {
 
     const tick = () => {
       const diff = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-      const m = Math.floor(diff / 60);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
       const s = diff % 60;
-      setElapsed(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+      if (h > 0) {
+        setElapsed(`${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+      } else {
+        setElapsed(`${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`);
+      }
     };
 
     tick();
@@ -523,7 +528,7 @@ export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
       done: data.status === "AI_PASS" || data.status === "COMPLETED",
       active: data.status === "PROCESSING",
       detail: data.processing
-        ? `${data.processing.created} מסמכים מתוך ${data.processing.total.toLocaleString("he-IL")}`
+        ? `${data.processing.created} מתוך ${data.processing.total.toLocaleString("he-IL")} (${data.processing.percent}%)`
         : "—",
       percent: data.processing?.percent ?? 0,
     },
@@ -531,8 +536,8 @@ export function ScanProgressBars({ data }: { data: DeepScanStatus }) {
       label: "חילוץ AI",
       done: data.status === "COMPLETED",
       active: data.status === "AI_PASS",
-      detail: data.ai
-        ? `${data.ai.processed}/${data.ai.total}`
+      detail: data.ai && data.ai.total > 0
+        ? `${data.ai.processed}/${data.ai.total} (${data.ai.percent}%)`
         : "—",
       percent: data.ai?.percent ?? 0,
     },
