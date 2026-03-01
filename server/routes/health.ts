@@ -7,8 +7,8 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     timestamp: new Date().toISOString(),
   }));
 
-  // Vercel Cron endpoint for monthly delivery
-  app.post("/cron/monthly-delivery", async (request, reply) => {
+  // Vercel Cron endpoint for monthly delivery (GET - Vercel Cron sends GET requests)
+  app.get("/cron/monthly-delivery", async (request, reply) => {
     const authHeader = request.headers.authorization;
     if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
       reply.code(401);
@@ -26,8 +26,8 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     }
   });
 
-  // Vercel Cron endpoint for Gmail sync
-  app.post("/cron/gmail-sync", async (request, reply) => {
+  // Vercel Cron endpoint for Gmail sync (GET - Vercel Cron sends GET requests)
+  app.get("/cron/gmail-sync", async (request, reply) => {
     const authHeader = request.headers.authorization;
     if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
       reply.code(401);
@@ -45,8 +45,8 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     }
   });
 
-  // Vercel Cron endpoint for deep scan processing
-  app.post("/cron/deep-scan", async (request, reply) => {
+  // Vercel Cron endpoint for deep scan processing (GET - Vercel Cron sends GET requests)
+  app.get("/cron/deep-scan", async (request, reply) => {
     const authHeader = request.headers.authorization;
     if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
       reply.code(401);
@@ -65,7 +65,7 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
   });
 
   // Vercel Cron endpoint for missing receipt detection (1st of month, 9AM)
-  app.post("/cron/missing-receipts", async (request, reply) => {
+  app.get("/cron/missing-receipts", async (request, reply) => {
     const authHeader = request.headers.authorization;
     if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
       reply.code(401);
