@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpLeft,
@@ -54,6 +54,7 @@ import {
   getDashboardAlerts,
   dismissAlert,
   getOAuthStartUrl,
+  getWhatsAppSession,
 } from "@/lib/api";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
@@ -289,6 +290,14 @@ const DashboardPage = () => {
   });
 
   const deepScan = useDeepScan(businessId as string);
+  const navigate = useNavigate();
+
+  const whatsAppQuery = useQuery({
+    queryKey: ["whatsapp", "session", businessId],
+    queryFn: () => getWhatsAppSession(businessId as string),
+    enabled: Boolean(businessId),
+    staleTime: 60_000,
+  });
 
   const connectGmailMutation = useMutation({
     mutationFn: async () => getOAuthStartUrl(businessId as string, "gmail"),
@@ -315,7 +324,11 @@ const DashboardPage = () => {
   const scanData = deepScan.statusQuery.data;
   const hasScanEver = Boolean(scanData?.scanJobId);
   const scanActive = Boolean(scanData?.active);
+  const hasWhatsApp = whatsAppQuery.data?.status === "connected";
   const isFreshUser = isPaid && summary && !hasDocuments && !scanActive && !hasScanEver;
+  // Show setup hero when any of the 3 key steps is incomplete
+  const needsSetup = isPaid && summary && (!hasInbox || (!hasScanEver && !scanActive) || !hasWhatsApp);
+  const currentSetupStep = !hasInbox ? "gmail" : (!hasScanEver && !scanActive) ? "scan" : "whatsapp";
 
   const filteredDocuments = useMemo(() => {
     const docs = documentsQuery.data?.documents ?? [];
@@ -432,8 +445,8 @@ const DashboardPage = () => {
             )}
           </div>
 
-          {/* Getting Started Hero - for fresh paid users */}
-          {isPaid && isFreshUser && !summaryQuery.isLoading && (
+          {/* Getting Started Hero - for fresh paid users needing setup */}
+          {needsSetup && isFreshUser && !summaryQuery.isLoading && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -442,14 +455,20 @@ const DashboardPage = () => {
               <div className="rounded-xl bg-gradient-to-l from-coral/90 to-coral p-8 text-white shadow-card">
                 <div className="max-w-xl mx-auto text-center space-y-6">
                   <h2 className="font-display text-2xl font-bold text-white">
-                    {!hasInbox ? "חבר את תיבת הדואר שלך" : "התחל סריקה עמוקה"}
+                    {currentSetupStep === "gmail"
+                      ? "חבר את תיבת הדואר שלך"
+                      : currentSetupStep === "scan"
+                        ? "התחל סריקה עמוקה"
+                        : "חבר וואטסאפ"}
                   </h2>
                   <p className="text-white/90">
-                    {!hasInbox
+                    {currentSetupStep === "gmail"
                       ? "חבר את Gmail שלך כדי שנוכל לסרוק חשבוניות מ-3 השנים האחרונות ולשלוח אותן אוטומטית לרואה החשבון."
-                      : "התיבה מחוברת! לחץ כדי לסרוק את כל החשבוניות מ-3 השנים האחרונות. הסריקה פועלת ברקע."}
+                      : currentSetupStep === "scan"
+                        ? "התיבה מחוברת! לחץ כדי לסרוק את כל החשבוניות מ-3 השנים האחרונות. הסריקה פועלת ברקע."
+                        : "חבר את הוואטסאפ שלך כדי לקבל חשבוניות בצילום מהיר ישירות מהנייד."}
                   </p>
-                  {!hasInbox ? (
+                  {currentSetupStep === "gmail" ? (
                     <button
                       className="inline-flex items-center justify-center gap-3 rounded-xl px-8 py-4 text-lg font-bold bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
                       onClick={() => connectGmailMutation.mutate()}
@@ -459,7 +478,7 @@ const DashboardPage = () => {
                       {connectGmailMutation.isPending ? "מתחבר..." : "חבר Gmail"}
                       <ArrowRight className="w-5 h-5" />
                     </button>
-                  ) : (
+                  ) : currentSetupStep === "scan" ? (
                     <button
                       className="inline-flex items-center justify-center gap-3 rounded-xl px-8 py-4 text-lg font-bold bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
                       onClick={() => deepScan.startMutation.mutate()}
@@ -469,19 +488,28 @@ const DashboardPage = () => {
                       {deepScan.startMutation.isPending ? "מתחיל סריקה..." : "התחל סריקה עמוקה"}
                       <ArrowRight className="w-5 h-5" />
                     </button>
+                  ) : (
+                    <button
+                      className="inline-flex items-center justify-center gap-3 rounded-xl px-8 py-4 text-lg font-bold bg-white text-gray-900 hover:bg-gray-100 hover:shadow-lg transition-all cursor-pointer"
+                      onClick={() => navigate("/settings?tab=integrations")}
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                      חבר וואטסאפ
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
                   )}
                   <div className="flex justify-center gap-6 text-sm text-white/70">
                     <span className={`flex items-center gap-1.5 ${hasInbox ? "text-white" : ""}`}>
                       {hasInbox ? <Check className="w-4 h-4" /> : <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />}
-                      חיבור תיבת דואר
+                      חיבור Gmail
                     </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />
+                    <span className={`flex items-center gap-1.5 ${hasScanEver || scanActive ? "text-white" : ""}`}>
+                      {hasScanEver || scanActive ? <Check className="w-4 h-4" /> : <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />}
                       סריקה עמוקה
                     </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />
-                      שליחה לרואה חשבון
+                    <span className={`flex items-center gap-1.5 ${hasWhatsApp ? "text-white" : ""}`}>
+                      {hasWhatsApp ? <Check className="w-4 h-4" /> : <span className="w-4 h-4 rounded-full border-2 border-white/40 inline-block" />}
+                      חיבור וואטסאפ
                     </span>
                   </div>
                 </div>
@@ -490,6 +518,36 @@ const DashboardPage = () => {
                 <Link to="/settings" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                   ⚙️ הגדרות
                 </Link>
+              </div>
+            </motion.div>
+          )}
+
+          {/* WhatsApp setup banner - for returning users who haven't connected WhatsApp */}
+          {isPaid && !isFreshUser && !hasWhatsApp && !summaryQuery.isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6"
+            >
+              <div className="rounded-xl bg-gradient-to-l from-green-600 to-green-500 p-5 text-white shadow-card">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <MessageCircle className="w-6 h-6 text-white" />
+                    <div>
+                      <h3 className="font-display font-bold text-lg text-white">חבר וואטסאפ</h3>
+                      <p className="text-sm text-white/90">
+                        קבל חשבוניות בצילום מהיר ישירות מהנייד. צלם ושלח - המערכת תזהה הכל אוטומטית.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold shrink-0 bg-white text-gray-900 border border-white hover:bg-gray-200 hover:shadow-md transition-all cursor-pointer"
+                    onClick={() => navigate("/settings?tab=integrations")}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    חבר עכשיו
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}

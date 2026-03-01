@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CreditCard, FileText, Mail, Plug, Plus, Trash2, User } from "lucide-react";
 import Navbar from "@/components/Navbar";
@@ -41,7 +41,9 @@ const providerLabel: Record<string, string> = {
 
 const SettingsPage = () => {
   const businessId = getActiveBusinessId();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get("tab") as SettingsTab) || "account";
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [accountForm, setAccountForm] = useState({
     fullName: "",
     email: "",
