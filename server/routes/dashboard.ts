@@ -13,6 +13,8 @@ const documentQuerySchema = z.object({
   status: z.enum(["all", "sent", "pending", "review"]).default("all"),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 const chatMessageSchema = z.object({
@@ -40,6 +42,13 @@ const updateDocumentSchema = z.object({
 
 const monthQuerySchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+const sendToAccountantSchema = z.object({
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 export async function registerDashboardRoutes(app: FastifyInstance): Promise<void> {
@@ -51,7 +60,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   app.get("/dashboard/:businessId/documents", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
     const query = documentQuerySchema.parse(request.query);
-    return store.getDashboardDocuments(businessId, query.status, query.page, query.limit);
+    return store.getDashboardDocuments(businessId, query.status, query.page, query.limit, query.fromDate, query.toDate);
   });
 
   app.get("/dashboard/:businessId/documents/:documentId", async (request) => {
@@ -67,32 +76,47 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
 
   app.get("/dashboard/:businessId/monthly-pdf", async (request, reply) => {
     const { businessId } = businessParamsSchema.parse(request.params);
-    const { month } = monthQuerySchema.parse(request.query);
+    const { month, fromDate, toDate } = monthQuerySchema.parse(request.query);
 
-    const now = new Date();
-    const monthKey = month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const summary = await store.getDashboardSummary(businessId);
-
-    const { documents } = await store.getDashboardDocuments(businessId, "all");
-    const monthStart = new Date(`${monthKey}-01T00:00:00Z`);
-    const nextMonth = new Date(monthStart);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    const monthDocs = documents.filter((d: any) => {
-      const date = new Date(d.issuedAt);
-      return date >= monthStart && date < nextMonth;
-    });
-
     const { generateMonthlyReport } = await import("../services/pdf");
+
+    let docs: any[];
+    let label: string;
+    let dateRange: { from: string; to: string } | undefined;
+
+    if (fromDate && toDate) {
+      // Custom date range mode
+      const result = await store.getDashboardDocuments(businessId, "all", 1, 10000, fromDate, toDate);
+      docs = result.documents;
+      label = `${fromDate}--${toDate}`;
+      dateRange = { from: fromDate, to: toDate };
+    } else {
+      // Legacy month mode
+      const now = new Date();
+      const monthKey = month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const result = await store.getDashboardDocuments(businessId, "all", 1, 10000);
+      const monthStart = new Date(`${monthKey}-01T00:00:00Z`);
+      const nextMonth = new Date(monthStart);
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+      docs = result.documents.filter((d: any) => {
+        const date = new Date(d.issuedAt);
+        return date >= monthStart && date < nextMonth;
+      });
+      label = monthKey;
+    }
+
     const pdfBuffer = await generateMonthlyReport(
       businessId,
-      monthKey,
+      label,
       summary.business.name,
       summary.business.accountantName,
-      monthDocs,
+      docs,
+      dateRange,
     );
 
     reply.header("Content-Type", "application/pdf");
-    reply.header("Content-Disposition", `attachment; filename="sendtoamram-${monthKey}.pdf"`);
+    reply.header("Content-Disposition", `attachment; filename="sendtoamram-${label}.pdf"`);
     return reply.send(pdfBuffer);
   });
 
@@ -118,6 +142,7 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
 
   app.post("/dashboard/:businessId/send-to-accountant", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
+    const body = sendToAccountantSchema.parse(request.body ?? {});
 
     if (!env.RESEND_API_KEY) {
       throw new Error("Email delivery is not configured (missing RESEND_API_KEY)");
@@ -128,9 +153,12 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       throw new Error("לא הוגדר מייל לרואה חשבון. עדכנו בהגדרות.");
     }
 
-    const { documents } = await store.getDashboardDocuments(businessId, "pending");
+    const { documents } = await store.getDashboardDocuments(
+      businessId, "pending", 1, 10000,
+      body.fromDate, body.toDate,
+    );
     if (documents.length === 0) {
-      return { sent: false, message: "אין מסמכים ממתינים לשליחה." };
+      return { sent: false, message: "אין מסמכים ממתינים לשליחה בטווח הנבחר." };
     }
 
     const summary = await store.getDashboardSummary(businessId);

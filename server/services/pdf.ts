@@ -68,6 +68,7 @@ export async function generateMonthlyReport(
   businessName: string,
   accountantName: string,
   documents: DocumentRow[],
+  dateRange?: { from: string; to: string },
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
@@ -101,11 +102,14 @@ export async function generateMonthlyReport(
       const pageWidth = doc.page.width - 80; // margins
 
       // Header with gradient-style background
+      const periodLabel = dateRange
+        ? `${formatDate(dateRange.from + "T00:00:00Z")} - ${formatDate(dateRange.to + "T00:00:00Z")}`
+        : monthKey;
       doc.rect(0, 0, doc.page.width, 100).fill("#ee5a24");
       doc.fontSize(24).font(fontName).fillColor("#ffffff");
       doc.text("SendToAmram", 40, 30, { align: "center" });
       doc.fontSize(12).fillColor("#ffffff");
-      doc.text(`${monthKey} | ${businessName}`, 40, 62, { align: "center" });
+      doc.text(`${periodLabel} | ${businessName}`, 40, 62, { align: "center" });
 
       // Reset position
       doc.fillColor("#333333");
@@ -123,7 +127,7 @@ export async function generateMonthlyReport(
       doc.fontSize(10).fillColor("#555555");
       doc.text(`Business: ${businessName}`, 40);
       doc.text(`Accountant: ${accountantName}`);
-      doc.text(`Month: ${monthKey}`);
+      doc.text(`Period: ${periodLabel}`);
       doc.text(`Total Documents: ${documents.length}`);
       doc.text(`Total Amount: ILS ${formatAmount(totalAmount)}`);
       doc.text(`Sent: ${sentCount} | Pending: ${pendingCount}`);

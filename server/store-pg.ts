@@ -632,18 +632,33 @@ export class AppStorePg {
     return this.buildSummary(businessId);
   }
 
-  async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50) {
+  async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50, fromDate?: string, toDate?: string) {
     await this.getBusinessOrThrow(businessId);
 
-    const statusFilter = status === "all" ? "" : "AND d.status = $2";
+    const conditions: string[] = [];
     const params: any[] = [businessId];
+
     if (status !== "all") {
       params.push(status.toUpperCase());
+      conditions.push(`AND d.status = $${params.length}`);
     }
+    if (fromDate) {
+      params.push(fromDate);
+      conditions.push(`AND d.issued_at >= $${params.length}`);
+    }
+    if (toDate) {
+      // Add 1 day for inclusive end date
+      const end = new Date(toDate);
+      end.setDate(end.getDate() + 1);
+      params.push(end.toISOString().slice(0, 10));
+      conditions.push(`AND d.issued_at < $${params.length}`);
+    }
+
+    const whereExtra = conditions.join(" ");
 
     // Get total count
     const countResult = await this.queryOne(
-      `SELECT COUNT(*) AS total FROM documents d WHERE d.business_id = $1 ${statusFilter}`,
+      `SELECT COUNT(*) AS total FROM documents d WHERE d.business_id = $1 ${whereExtra}`,
       params,
     );
     const total = parseInt(countResult.total, 10);
@@ -660,7 +675,7 @@ export class AppStorePg {
               COALESCE(ic.provider, 'WHATSAPP') AS "inboxProvider"
        FROM documents d
        LEFT JOIN inbox_connections ic ON ic.id = d.inbox_connection_id
-       WHERE d.business_id = $1 ${statusFilter}
+       WHERE d.business_id = $1 ${whereExtra}
        ORDER BY d.issued_at DESC
        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
       paginatedParams,

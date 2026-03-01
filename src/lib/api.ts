@@ -272,8 +272,14 @@ export function syncDashboard(
 
 export function sendToAccountant(
   businessId: string,
+  fromDate?: string,
+  toDate?: string,
 ): Promise<{ sent: boolean; emailId?: string; documentCount?: number; accountantEmail?: string; message?: string }> {
-  return apiRequest(`/dashboard/${businessId}/send-to-accountant`, { method: "POST" });
+  const body = fromDate && toDate ? { fromDate, toDate } : undefined;
+  return apiRequest(`/dashboard/${businessId}/send-to-accountant`, {
+    method: "POST",
+    ...(body && { body: JSON.stringify(body) }),
+  });
 }
 
 export interface PaginatedDocuments {
@@ -290,8 +296,13 @@ export function getDashboardDocuments(
   status: DocumentFilter,
   page = 1,
   limit = 50,
+  fromDate?: string,
+  toDate?: string,
 ): Promise<PaginatedDocuments> {
-  return apiRequest(`/dashboard/${businessId}/documents?status=${status}&page=${page}&limit=${limit}`);
+  const searchParams = new URLSearchParams({ status, page: String(page), limit: String(limit) });
+  if (fromDate) searchParams.set("fromDate", fromDate);
+  if (toDate) searchParams.set("toDate", toDate);
+  return apiRequest(`/dashboard/${businessId}/documents?${searchParams.toString()}`);
 }
 
 export function getDashboardDocumentDetail(
@@ -388,10 +399,17 @@ export function updateDocument(
 
 export async function downloadMonthlyPdf(
   businessId: string,
-  month?: string,
+  opts?: { month?: string; fromDate?: string; toDate?: string },
 ): Promise<Blob> {
-  const params = month ? `?month=${encodeURIComponent(month)}` : "";
-  const response = await fetch(`/api/dashboard/${businessId}/monthly-pdf${params}`);
+  const searchParams = new URLSearchParams();
+  if (opts?.fromDate && opts?.toDate) {
+    searchParams.set("fromDate", opts.fromDate);
+    searchParams.set("toDate", opts.toDate);
+  } else if (opts?.month) {
+    searchParams.set("month", opts.month);
+  }
+  const qs = searchParams.toString();
+  const response = await fetch(`/api/dashboard/${businessId}/monthly-pdf${qs ? `?${qs}` : ""}`);
   if (!response.ok) {
     throw new Error(`PDF download failed with status ${response.status}`);
   }

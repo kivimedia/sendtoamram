@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,6 +26,7 @@ import {
   Sparkles,
   X,
   ChevronDown,
+  CalendarDays,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,10 @@ import {
   getOAuthStartUrl,
   getWhatsAppSession,
 } from "@/lib/api";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { he } from "date-fns/locale";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
 import DeepScanProgress, { DeepScanExpandedProgress, useDeepScan } from "@/components/DeepScanProgress";
@@ -96,6 +101,9 @@ const DashboardPage = () => {
   const [editForm, setEditForm] = useState<DocumentUpdate>({});
   const [customCategory, setCustomCategory] = useState("");
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const [dateRangeMode, setDateRangeMode] = useState<"pdf" | "send" | null>(null);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -134,6 +142,21 @@ const DashboardPage = () => {
     queryKey: ["dashboard", "alerts", businessId],
     queryFn: () => getDashboardAlerts(businessId as string),
     enabled: Boolean(businessId),
+  });
+
+  const dateFromStr = dateFrom ? format(dateFrom, "yyyy-MM-dd") : undefined;
+  const dateToStr = dateTo ? format(dateTo, "yyyy-MM-dd") : undefined;
+
+  const dateRangeCountQuery = useQuery({
+    queryKey: ["dashboard", "date-range-count", businessId, dateFromStr, dateToStr, dateRangeMode],
+    queryFn: () => getDashboardDocuments(
+      businessId as string,
+      dateRangeMode === "send" ? "pending" : "all",
+      1, 1,
+      dateFromStr, dateToStr,
+    ),
+    enabled: Boolean(businessId && dateFrom && dateTo && dateRangeMode),
+    staleTime: 10_000,
   });
 
   const dismissAlertMutation = useMutation({
@@ -179,7 +202,8 @@ const DashboardPage = () => {
   });
 
   const sendMutation = useMutation({
-    mutationFn: async () => sendToAccountant(businessId as string),
+    mutationFn: async (opts?: { fromDate?: string; toDate?: string }) =>
+      sendToAccountant(businessId as string, opts?.fromDate, opts?.toDate),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       if (data.sent) {
@@ -193,6 +217,7 @@ const DashboardPage = () => {
           description: data.message ?? "אין מסמכים ממתינים.",
         });
       }
+      setDateRangeMode(null);
     },
     onError: (error) => {
       toast({
@@ -242,7 +267,7 @@ const DashboardPage = () => {
   });
 
   const pdfMutation = useMutation({
-    mutationFn: async () => downloadMonthlyPdf(businessId as string),
+    mutationFn: async (opts?: { fromDate?: string; toDate?: string }) => downloadMonthlyPdf(businessId as string, opts),
     onSuccess: (blob) => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -253,6 +278,7 @@ const DashboardPage = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      setDateRangeMode(null);
     },
     onError: (error) => {
       toast({
@@ -333,6 +359,23 @@ const DashboardPage = () => {
   // Show setup hero when any of the 3 key steps is incomplete
   const needsSetup = isPaid && summary && (!hasInbox || (!hasScanEver && !scanActive) || !hasWhatsApp);
   const currentSetupStep = !hasInbox ? "gmail" : (!hasScanEver && !scanActive) ? "scan" : "whatsapp";
+
+  const handleDateRangeConfirm = useCallback(() => {
+    if (!dateFrom || !dateTo) return;
+    const from = format(dateFrom, "yyyy-MM-dd");
+    const to = format(dateTo, "yyyy-MM-dd");
+    if (dateRangeMode === "pdf") {
+      pdfMutation.mutate({ fromDate: from, toDate: to });
+    } else if (dateRangeMode === "send") {
+      sendMutation.mutate({ fromDate: from, toDate: to });
+    }
+  }, [dateFrom, dateTo, dateRangeMode, pdfMutation, sendMutation]);
+
+  const openDateRangeDialog = useCallback((mode: "pdf" | "send") => {
+    setDateFrom(undefined);
+    setDateTo(undefined);
+    setDateRangeMode(mode);
+  }, []);
 
   const filteredDocuments = useMemo(() => {
     const docs = documentsQuery.data?.documents ?? [];
@@ -421,7 +464,7 @@ const DashboardPage = () => {
                   <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                   {syncMutation.isPending ? "מסנכרן..." : "סנכרן עכשיו"}
                 </Button>
-                <Button variant="coral" size="sm" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
+                <Button variant="coral" size="sm" onClick={() => openDateRangeDialog("send")} disabled={sendMutation.isPending}>
                   <Send className="w-4 h-4" /> {sendMutation.isPending ? "שולח..." : "שלח לרואה חשבון"}
                 </Button>
                 <div className="relative">
@@ -430,7 +473,7 @@ const DashboardPage = () => {
                   </Button>
                   {showMoreActions && (
                     <div className="absolute left-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-10 min-w-[160px] py-1">
-                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { pdfMutation.mutate(); setShowMoreActions(false); }}>
+                      <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { openDateRangeDialog("pdf"); setShowMoreActions(false); }}>
                         <FileText className="w-4 h-4" /> PDF חודשי
                       </button>
                       <button className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/50 transition-colors" onClick={() => { exportMutation.mutate(); setShowMoreActions(false); }}>
@@ -1008,6 +1051,99 @@ const DashboardPage = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Date Range Dialog for PDF / Send to Accountant */}
+      <Dialog open={dateRangeMode !== null} onOpenChange={(open) => { if (!open) setDateRangeMode(null); }}>
+        <DialogContent className="sm:max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5" />
+              {dateRangeMode === "pdf" ? "הורד PDF לטווח תאריכים" : "שלח מסמכים לרואה חשבון"}
+            </DialogTitle>
+            <DialogDescription>
+              {dateRangeMode === "pdf"
+                ? "בחר טווח תאריכים ליצירת דוח PDF"
+                : "בחר טווח תאריכים לשליחת מסמכים ממתינים לרואה חשבון"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* From Date */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium w-16 shrink-0">מתאריך:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="flex-1 justify-start text-right font-normal">
+                    <CalendarDays className="w-4 h-4 ml-2" />
+                    {dateFrom ? format(dateFrom, "dd/MM/yyyy") : "בחר תאריך"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom}
+                    onSelect={setDateFrom}
+                    locale={he}
+                    disabled={(date) => dateTo ? date > dateTo : false}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* To Date */}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium w-16 shrink-0">עד תאריך:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="flex-1 justify-start text-right font-normal">
+                    <CalendarDays className="w-4 h-4 ml-2" />
+                    {dateTo ? format(dateTo, "dd/MM/yyyy") : "בחר תאריך"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateTo}
+                    onSelect={setDateTo}
+                    locale={he}
+                    disabled={(date) => dateFrom ? date < dateFrom : false}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Document count preview */}
+            {dateFrom && dateTo && (
+              <div className="bg-secondary/50 rounded-lg p-3 text-center">
+                {dateRangeCountQuery.isLoading ? (
+                  <span className="text-sm text-muted-foreground">בודק כמות מסמכים...</span>
+                ) : dateRangeCountQuery.data ? (
+                  <span className="text-sm font-medium">
+                    {dateRangeCountQuery.data.total === 0
+                      ? dateRangeMode === "send" ? "אין מסמכים ממתינים בטווח הנבחר" : "אין מסמכים בטווח הנבחר"
+                      : `${dateRangeCountQuery.data.total} מסמכים ${dateRangeMode === "send" ? "ממתינים " : ""}בטווח הנבחר`}
+                  </span>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setDateRangeMode(null)}>
+              ביטול
+            </Button>
+            <Button
+              variant="coral"
+              disabled={!dateFrom || !dateTo || (dateRangeCountQuery.data?.total === 0) || pdfMutation.isPending || sendMutation.isPending}
+              onClick={handleDateRangeConfirm}
+            >
+              {dateRangeMode === "pdf"
+                ? (pdfMutation.isPending ? "מכין PDF..." : "הורד PDF")
+                : (sendMutation.isPending ? "שולח..." : "שלח לרואה חשבון")}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
