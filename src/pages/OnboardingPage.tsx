@@ -284,7 +284,14 @@ const OnboardingPage = () => {
   };
 
   const handleCheckout = async () => {
-    if (!businessId) return;
+    if (!businessId) {
+      toast({
+        title: "שגיאה",
+        description: "חסר מזהה עסק. נסה להתחבר מחדש.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsCheckingOut(true);
     try {
       const response = await createCheckoutSession(businessId);
@@ -297,9 +304,10 @@ const OnboardingPage = () => {
         window.location.href = response.checkoutUrl;
       }
     } catch (error) {
+      console.error("[checkout] Error:", error);
       toast({
         title: "שגיאת תשלום",
-        description: error instanceof Error ? error.message : "לא הצלחנו ליצור עמוד תשלום.",
+        description: error instanceof Error ? error.message : "לא הצלחנו ליצור עמוד תשלום. נסה שוב.",
         variant: "destructive",
       });
     } finally {
@@ -946,21 +954,21 @@ const OnboardingPage = () => {
               </div>
 
               <h1 className="font-display text-3xl font-bold text-foreground mb-3">
-                סריקה עמוקה של התיבה שלך
+                הצטרפו ל-SendToAmram
               </h1>
               <p className="text-muted-foreground mb-6">
-                נסרוק את <span className="font-semibold text-foreground">3 השנים האחרונות</span> של
-                מיילים ונמצא את כל החשבוניות, הקבלות ואישורי התשלום. אוטומטית.
+                השירות שמנהל את כל החשבוניות שלכם - סריקה אוטומטית של <span className="font-semibold text-foreground">3 שנים</span> של
+                מיילים, זיהוי חכם ושליחה ישירה לרואה החשבון.
               </p>
 
               {/* Feature list */}
               <div className="space-y-3 mb-6">
                 {[
-                  { icon: Mail, text: "סריקת אלפי מיילים בדקות" },
+                  { icon: Mail, text: "סריקת אלפי מיילים ומציאת כל החשבוניות" },
                   { icon: Sparkles, text: "זיהוי חכם עם AI: ספקים, סכומים, קטגוריות" },
                   {
                     icon: ArrowLeft,
-                    text: `שליחה אוטומטית ל-${displayName} כל חודש`,
+                    text: `שליחה אוטומטית ל${displayName} כל חודש`,
                   },
                 ].map(({ icon: Icon, text }) => (
                   <div key={text} className="flex items-center gap-3">
@@ -984,7 +992,7 @@ const OnboardingPage = () => {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-success">
                   <ShieldCheck className="w-4 h-4" />
-                  <span className="font-medium">30 יום אחריות. לא מרוצה? כסף בחזרה.</span>
+                  <span className="font-medium">30 יום אחריות. לא מרוצים? תקבלו החזר כספי מלא.</span>
                 </div>
               </div>
 
@@ -1000,7 +1008,7 @@ const OnboardingPage = () => {
                   </>
                 ) : (
                   <>
-                    <CreditCard className="w-5 h-5" /> הפעל סריקה עמוקה
+                    <CreditCard className="w-5 h-5" /> הצטרף עכשיו
                   </>
                 )}
               </Button>
