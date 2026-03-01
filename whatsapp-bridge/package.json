@@ -7,7 +7,7 @@
     "dev": "tsx watch index.ts"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^6.17.16",
     "fastify": "^5.2.1",
     "qrcode": "^1.5.4",
     "pino": "^9.6.0"

@@ -3,6 +3,7 @@ import {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  Browsers,
   type WASocket,
   type BaileysEventMap,
 } from "@whiskeysockets/baileys";
@@ -84,8 +85,7 @@ export async function startSession(
     const socket = makeWASocket({
       version,
       auth: state,
-      printQRInTerminal: true,
-      browser: ["SendToAmram", "Chrome", "1.0"],
+      browser: Browsers.ubuntu("Chrome"),
     });
 
     session.socket = socket;
