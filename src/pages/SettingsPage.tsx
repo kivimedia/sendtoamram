@@ -208,15 +208,15 @@ const SettingsPage = () => {
       setWhatsAppRuntimeStatus(response.session?.status ?? response.integration?.status ?? null);
       setWhatsAppQrDataUrl(response.session?.qrDataUrl ?? null);
       toast({
-        title: "WhatsApp status updated",
-        description: response.session?.lastError ?? response.integration?.lastError ?? "Connection saved.",
+        title: "סטטוס WhatsApp עודכן",
+        description: response.session?.lastError ?? response.integration?.lastError ?? "החיבור נשמר.",
         variant: (response.session?.status ?? response.integration?.status) === "failed" ? "destructive" : "default",
       });
     },
     onError: (error) => {
       toast({
-        title: "WhatsApp connection failed",
-        description: error instanceof Error ? error.message : "An unexpected WhatsApp error occurred.",
+        title: "חיבור WhatsApp נכשל",
+        description: error instanceof Error ? error.message : "אירעה שגיאה בחיבור WhatsApp.",
         variant: "destructive",
       });
     },
@@ -392,30 +392,27 @@ const SettingsPage = () => {
 
                     <SettingsCard title="WhatsApp">
                       <div className="grid sm:grid-cols-2 gap-4">
-                        <Field label="Main number (E.164)">
+                        <Field label="מספר ראשי (E.164)">
                           <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" dir="ltr" />
                         </Field>
-                        <Field label="Contact name">
-                          <Input value={whatsAppName} onChange={(event) => setWhatsAppName(event.target.value)} placeholder="Owner name" className="h-11" />
+                        <Field label="שם איש קשר">
+                          <Input value={whatsAppName} onChange={(event) => setWhatsAppName(event.target.value)} placeholder="שם בעל העסק" className="h-11" />
                         </Field>
                       </div>
-                      {whatsAppQrDataUrl && data.whatsapp?.provider === "baileys" && (
+                      {whatsAppQrDataUrl && (
                         <div className="mt-4">
                           <img src={whatsAppQrDataUrl} alt="WhatsApp QR" className="w-44 h-44 rounded-lg border border-border bg-white p-2" />
                           <p className="text-xs text-muted-foreground mt-2">
-                            Scan with WhatsApp, then open Linked devices and tap Link a device.
+                            סרוק עם WhatsApp - פתח מכשירים מקושרים ולחץ על קשר מכשיר.
                           </p>
                         </div>
                       )}
                       <div className="mt-4 flex flex-wrap items-center gap-3">
                         <Button variant="coral" onClick={() => connectWhatsAppMutation.mutate()} disabled={connectWhatsAppMutation.isPending}>
-                          {connectWhatsAppMutation.isPending ? "Connecting..." : "Connect WhatsApp"}
+                          {connectWhatsAppMutation.isPending ? "מתחבר..." : "חבר WhatsApp"}
                         </Button>
                         <span className="text-sm text-muted-foreground">
-                          Status: {whatsAppRuntimeStatus ?? data.whatsapp?.status ?? "idle"} {data.whatsapp?.lastError ? `· ${data.whatsapp.lastError}` : ""}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          Provider: {data.whatsapp?.provider ?? "unknown"}
+                          סטטוס: {whatsAppRuntimeStatus ?? data.whatsapp?.status ?? "לא פעיל"} {data.whatsapp?.lastError ? `· ${data.whatsapp.lastError}` : ""}
                         </span>
                       </div>
                     </SettingsCard>
