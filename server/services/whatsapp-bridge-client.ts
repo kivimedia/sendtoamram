@@ -7,20 +7,18 @@ function getBridgeUrl(): string {
   return env.WHATSAPP_BRIDGE_URL.replace(/\/$/, "");
 }
 
-function getBridgeHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (env.WHATSAPP_BRIDGE_SECRET) {
-    headers["X-Bridge-Secret"] = env.WHATSAPP_BRIDGE_SECRET;
-  }
-  return headers;
-}
 
 async function bridgeFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${getBridgeUrl()}${path}`;
+  const headers: Record<string, string> = {};
+  if (env.WHATSAPP_BRIDGE_SECRET) {
+    headers["X-Bridge-Secret"] = env.WHATSAPP_BRIDGE_SECRET;
+  }
+  if (init?.body) {
+    headers["Content-Type"] = "application/json";
+  }
   const response = await fetch(url, {
-    headers: getBridgeHeaders(),
+    headers,
     ...init,
   });
 
