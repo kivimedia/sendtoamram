@@ -107,7 +107,8 @@ export async function startSession(
 
         if (shouldReconnect && session.retryCount < 5) {
           session.retryCount++;
-          session.status = "connecting";
+          session.socket = null;
+          session.status = "idle";
           console.log(`[${businessId}] Reconnecting (attempt ${session.retryCount})...`);
           setTimeout(() => startSession(businessId, onInboundMessage), 3000);
         } else {
