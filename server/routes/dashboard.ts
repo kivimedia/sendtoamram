@@ -3,6 +3,7 @@ import { z } from "zod";
 import { store } from "../store";
 import { syncGmailInbox } from "../services/gmail-sync";
 import { sendDocumentsToAccountant } from "../services/email";
+import { matchVendorCategory, BUILTIN_CATEGORIES } from "../services/ai";
 import { env } from "../config";
 
 const businessParamsSchema = z.object({
@@ -198,13 +199,12 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
     const { businessId } = businessParamsSchema.parse(request.params);
     const mappings = await store.getVendorCategoryMappings(businessId);
 
-    const builtIn = ['תוכנה', 'חשבונות', 'משרד', 'ציוד', 'נסיעות', 'שיווק', 'מקצועי', 'כללי'];
     const customFromMappings = [...new Set(
-      mappings.map((m: any) => m.category).filter((c: string) => !builtIn.includes(c))
+      mappings.map((m: any) => m.category).filter((c: string) => !BUILTIN_CATEGORIES.includes(c))
     )];
 
     return {
-      categories: [...builtIn, ...customFromMappings],
+      categories: [...BUILTIN_CATEGORIES, ...customFromMappings],
       vendorMappings: mappings.slice(0, 50),
     };
   });
@@ -238,5 +238,49 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
 
     const summary = await store.getDashboardSummary(businessId);
     return { newDocuments: totalNew, summary };
+  });
+
+  // ─── Category backfill ───
+
+  app.post("/dashboard/:businessId/categorize-backfill", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    const vendors = await store.getUncategorizedVendors(businessId);
+
+    if (vendors.length === 0) {
+      return { categorized: 0, vendors: 0, message: "כל המסמכים כבר מסווגים!" };
+    }
+
+    let totalCategorized = 0;
+    let vendorsCategorized = 0;
+
+    // Phase 1: Apply vendor keyword rules (free, instant)
+    for (const v of vendors) {
+      const matched = matchVendorCategory(v.vendorName);
+      if (matched) {
+        const count = await store.setCategoryByVendor(businessId, v.vendorName, matched);
+        totalCategorized += count;
+        vendorsCategorized++;
+      }
+    }
+
+    // Phase 2: Use learned vendor mappings
+    const mappings = await store.getVendorCategoryMappings(businessId);
+    const mappingMap = new Map(mappings.map((m: any) => [m.vendorNameOriginal.toLowerCase(), m.category]));
+
+    const remainingVendors = await store.getUncategorizedVendors(businessId);
+    for (const v of remainingVendors) {
+      const mapped = mappingMap.get(v.vendorName.toLowerCase());
+      if (mapped) {
+        const count = await store.setCategoryByVendor(businessId, v.vendorName, mapped);
+        totalCategorized += count;
+        vendorsCategorized++;
+      }
+    }
+
+    return {
+      categorized: totalCategorized,
+      vendors: vendorsCategorized,
+      remaining: (await store.getUncategorizedVendors(businessId)).reduce((s, v) => s + v.count, 0),
+    };
   });
 }

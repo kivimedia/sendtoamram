@@ -7,9 +7,11 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   Pencil,
   Save,
   Search,
+  Sparkles,
   X,
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
@@ -35,6 +37,7 @@ import {
   getDashboardCategories,
   getDashboardDocumentDetail,
   updateDocument,
+  runCategoryBackfill,
 } from "@/lib/api";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
@@ -134,6 +137,26 @@ const InvoicesPage = () => {
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: async () => runCategoryBackfill(businessId!),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      if (data.categorized > 0) {
+        toast({ title: `סווגו ${data.categorized} מסמכים (${data.vendors} ספקים)` });
+      } else {
+        toast({ title: data.message ?? "לא נמצאו מסמכים לסיווג" });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "סיווג נכשל",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // ─── Derived State ───
 
   const toggleCategory = useCallback((cat: string) => {
@@ -224,8 +247,19 @@ const InvoicesPage = () => {
               )}
             </div>
 
-            {/* Date range */}
-            <div className="flex items-center gap-2">
+            {/* Actions + Date range */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => backfillMutation.mutate()}
+                disabled={backfillMutation.isPending}
+              >
+                {backfillMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {backfillMutation.isPending ? "מסווג..." : "סווג אוטומטית"}
+              </Button>
+              <span className="text-border">|</span>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5">

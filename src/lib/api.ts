@@ -497,6 +497,21 @@ export function getDashboardAnalytics(
   return apiRequest(`/dashboard/${businessId}/analytics${qs ? `?${qs}` : ""}`);
 }
 
+// ─── Category Backfill ───
+
+export interface BackfillResponse {
+  categorized: number;
+  vendors: number;
+  remaining: number;
+  message?: string;
+}
+
+export function runCategoryBackfill(businessId: string): Promise<BackfillResponse> {
+  return apiRequest(`/dashboard/${businessId}/categorize-backfill`, {
+    method: "POST",
+  });
+}
+
 // ─── Missing Receipt Alerts ───
 
 export interface MissingReceiptAlert {

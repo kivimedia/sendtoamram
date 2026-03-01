@@ -254,12 +254,11 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
     await import("./ai");
   const cheapModel = env.AI_MODEL_CHEAP;
 
-  // Load learned vendor→category mappings (trimmed to top 5 for cost)
+  // Load learned vendor→category mappings (top 20 for better categorization)
   let vendorMappings: Array<{ vendorNameOriginal: string; category: string }> = [];
   try {
     const mappings = await store.getVendorCategoryMappings(inbox.businessId);
-    // Only include top 5 most-corrected mappings to reduce prompt tokens
-    vendorMappings = mappings.slice(0, 5).map((m: any) => ({
+    vendorMappings = mappings.slice(0, 20).map((m: any) => ({
       vendorNameOriginal: m.vendorNameOriginal,
       category: m.category,
     }));

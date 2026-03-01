@@ -59,13 +59,64 @@ export interface VendorCategoryMapping {
   category: string;
 }
 
-const BUILTIN_CATEGORIES = ['תוכנה', 'חשבונות', 'משרד', 'ציוד', 'נסיעות', 'שיווק', 'מקצועי', 'כללי'];
+export const BUILTIN_CATEGORIES = [
+  'תוכנה', 'ענן ואחסון', 'פרסום', 'שיווק', 'תקשורת',
+  'משרד', 'ציוד', 'נסיעות', 'מזון', 'שכירות',
+  'ביטוח', 'חשבונות', 'ייעוץ', 'לימודים', 'רישיונות',
+  'בנקאות', 'מקצועי', 'כללי',
+];
+
+// Vendor name patterns mapped to categories (case-insensitive regex)
+export const VENDOR_CATEGORY_RULES: Array<{ pattern: RegExp; category: string }> = [
+  // תוכנה - Software
+  { pattern: /github|gitlab|jetbrains|atlassian|jira|confluence|notion|slack|zoom|microsoft|office\s?365|adobe|figma|canva|monday\.com|asana|clickup|trello|dropbox|1password|lastpass/i, category: 'תוכנה' },
+  // ענן ואחסון - Cloud/Hosting
+  { pattern: /aws|amazon\s?web|vercel|netlify|heroku|digitalocean|linode|vultr|hetzner|cloudflare|siteground|godaddy|namecheap|wix|squarespace|firebase|supabase|neon|planetscale|railway|render|fly\.io/i, category: 'ענן ואחסון' },
+  // פרסום - Advertising
+  { pattern: /google\s?ads|meta\s?ads|facebook\s?ads|instagram\s?ads|tiktok\s?ads|linkedin\s?ads|twitter\s?ads|taboola|outbrain|bing\s?ads/i, category: 'פרסום' },
+  // שיווק - Marketing
+  { pattern: /mailchimp|sendgrid|hubspot|mailerlite|convertkit|activecampaign|sendinblue|brevo|constant\s?contact|klaviyo|semrush|ahrefs|moz/i, category: 'שיווק' },
+  // תקשורת - Telecom
+  { pattern: /בזק|bezeq|פרטנר|partner|סלקום|cellcom|הוט|hot\b|גולן|golan|012|013|018|pelephone|פלאפון|yes\b|רמי\s?לוי\s?תקשורת/i, category: 'תקשורת' },
+  // מזון - Food
+  { pattern: /מסעד[הת]|restaurant|wolt|תן ביס|10bis|cibus|סיבוס|japanika|שיפודי|פיצ[הא]|אגדיר|cafe|קפה|בית\s?קפה|מאפ[הי]/i, category: 'מזון' },
+  // ביטוח - Insurance
+  { pattern: /ביטוח|insurance|הראל|הפניקס|מגדל|כלל\s?ביטוח|menora|מנורה|migdal|clal|phoenix|harel/i, category: 'ביטוח' },
+  // חשבונות - Accounting
+  { pattern: /רואה?\s?חשבון|accountant|חשבשבת|hashavshevet|priority|סאפ|sap\b|invoice4u|greeninvoice|חשבונית\s?ירוקה|icount|rivhit|רווחית/i, category: 'חשבונות' },
+  // נסיעות - Travel
+  { pattern: /booking\.com|airbnb|waze|gett|uber|yango|מונית|taxi|אל\s?על|elal|ישראייר|israir|arkia|ארקיע|airlines|flight|hotel|מלון/i, category: 'נסיעות' },
+  // רישיונות - Licenses
+  { pattern: /license|רישיון|רשם\s?החברות|עירייה|municipality|ארנונה|arnona|aguda|אגודה|רשות/i, category: 'רישיונות' },
+  // בנקאות - Banking
+  { pattern: /לאומי|leumi|הפועלים|hapoalim|מזרחי|mizrahi|דיסקונט|discount|בנק\s?הדואר|paypal|stripe|payoneer|wise\.com|עמלת?\s?בנק/i, category: 'בנקאות' },
+  // משרד - Office
+  { pattern: /office\s?depot|סופר\s?פארם|kravitz|קרביץ|שופרסל|רמי\s?לוי|דיו|טונר|toner|ink|paper|נייר|ריהוט|furniture/i, category: 'משרד' },
+  // ציוד - Equipment
+  { pattern: /ksp|ivory|bug|באג|זאפ|next|נקסט\s?דיגיטל|dell|lenovo|apple|samsung|lg\b|hp\b|מחשב|computer|מדפסת|printer|מסך|monitor/i, category: 'ציוד' },
+  // לימודים - Education
+  { pattern: /udemy|coursera|linkedin\s?learning|masterclass|קורס|course|סדנ[הא]|workshop|הכשרה|training|אקדמי|academic|מכללה|college/i, category: 'לימודים' },
+  // ייעוץ - Consulting
+  { pattern: /consulting|ייעוץ|יועץ|advisor|עורך?\s?דין|lawyer|attorney|פרילנסר|freelanc/i, category: 'ייעוץ' },
+];
+
+/** Match a vendor name against known rules. Returns category or null. */
+export function matchVendorCategory(vendorName: string): string | null {
+  const name = vendorName.trim();
+  if (!name) return null;
+  for (const rule of VENDOR_CATEGORY_RULES) {
+    if (rule.pattern.test(name)) return rule.category;
+  }
+  return null;
+}
+
+const CATEGORY_LIST_STR = BUILTIN_CATEGORIES.join(', ');
 
 const EXTRACTION_SYSTEM_PROMPT_BASE = `You are an Israeli invoice/receipt data extractor. Extract structured data and return ONLY valid JSON, no markdown, no explanation.
 
 Return exactly this shape:
 {
-  "vendorName": "string – the vendor/company name",
+  "vendorName": "string - the vendor/company name",
   "amountCents": 0,
   "currency": "ILS",
   "vatCents": null,
@@ -79,7 +130,26 @@ Rules:
 - amountCents is in agorot (1 ILS = 100 agorot). Example: ₪150 = 15000
 - vatCents: If VAT is separately listed, extract it. Otherwise null.
 - type: one of INVOICE, RECEIPT, SUBSCRIPTION, PAYMENT_CONFIRMATION
-- category: one of תוכנה, חשבונות, משרד, ציוד, נסיעות, שיווק, מקצועי, כללי
+- category: Pick the BEST match from: ${CATEGORY_LIST_STR}
+  Category guide:
+  - תוכנה: dev tools, SaaS apps (GitHub, Slack, Notion, Figma, Adobe)
+  - ענן ואחסון: cloud hosting, domains (AWS, Vercel, GoDaddy, Cloudflare)
+  - פרסום: ad spend (Google Ads, Meta Ads, TikTok Ads)
+  - שיווק: marketing tools (Mailchimp, HubSpot, SEMrush)
+  - תקשורת: phone, internet (Bezeq, Partner, Cellcom, HOT)
+  - משרד: office supplies, printing
+  - ציוד: hardware, electronics (KSP, Dell, Apple)
+  - נסיעות: flights, hotels, taxis, car rental
+  - מזון: restaurants, catering (Wolt, 10bis)
+  - שכירות: rent, lease, co-working spaces
+  - ביטוח: insurance policies
+  - חשבונות: accounting software (Hashavshevet, GreenInvoice, iCount)
+  - ייעוץ: consulting, legal, freelancers
+  - לימודים: courses, training, workshops
+  - רישיונות: licenses, municipal fees, permits
+  - בנקאות: bank fees, payment processors (PayPal, Stripe)
+  - מקצועי: professional services not fitting above
+  - כללי: ONLY if nothing else fits. Avoid using this.
 - issuedAt: Best guess date in YYYY-MM-DD. If unknown, use today.
 - confidence: 0-1 how confident you are in the extraction.
 - If you truly cannot extract anything useful, return confidence: 0.1 with best guesses.`;
@@ -281,7 +351,8 @@ Return ONLY a JSON array. For each email by index:
 
 amountCents = amount in smallest unit (agorot for ILS, cents for USD). ₪150 = 15000, $20 = 2000.
 If amount not visible in metadata, set amountCents to 0 but still mark isInvoice true if it's clearly an expense.
-Categories: תוכנה, חשבונות, משרד, ציוד, נסיעות, שיווק, מקצועי, כללי`;
+Categories: ${CATEGORY_LIST_STR}
+Pick the BEST match. Use כללי ONLY when nothing else fits.`;
 
 export async function classifyEmailBatch(
   businessId: string,

@@ -1791,4 +1791,44 @@ export class AppStorePg {
     );
     return Boolean(row);
   }
+
+  // ─── Category backfill ───
+
+  /** Get distinct uncategorized vendors with their doc counts */
+  async getUncategorizedVendors(businessId: string): Promise<Array<{
+    vendorName: string;
+    count: number;
+    sampleSubject: string | null;
+  }>> {
+    const rows = await this.query<{ vendorName: string; count: string; sampleSubject: string | null }>(
+      `SELECT vendor_name AS "vendorName",
+              COUNT(*)::text AS count,
+              (ARRAY_AGG(raw_text ORDER BY created_at DESC))[1] AS "sampleSubject"
+       FROM documents
+       WHERE business_id = $1
+         AND (category IS NULL OR category = '')
+         AND status != 'IGNORED'
+       GROUP BY vendor_name
+       ORDER BY COUNT(*) DESC`,
+      [businessId],
+    );
+    return rows.map(r => ({
+      vendorName: r.vendorName,
+      count: parseInt(r.count),
+      sampleSubject: r.sampleSubject ? r.sampleSubject.substring(0, 200) : null,
+    }));
+  }
+
+  /** Batch-update category for all docs from a given vendor */
+  async setCategoryByVendor(businessId: string, vendorName: string, category: string): Promise<number> {
+    const result = await this.query(
+      `UPDATE documents
+       SET category = $3, updated_at = NOW()
+       WHERE business_id = $1
+         AND LOWER(vendor_name) = LOWER($2)
+         AND (category IS NULL OR category = '')`,
+      [businessId, vendorName, category],
+    );
+    return (result as any).rowCount ?? 0;
+  }
 }

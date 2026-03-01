@@ -1,7 +1,7 @@
 import { env } from "../config";
 import { store } from "../store";
 import { getValidAccessToken } from "./oauth";
-import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, classifyEmailBatch, type VendorCategoryMapping, type EmailCandidate, type ClassificationResult } from "./ai";
+import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, classifyEmailBatch, matchVendorCategory, type VendorCategoryMapping, type EmailCandidate, type ClassificationResult } from "./ai";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -501,7 +501,7 @@ export function extractDocumentFromEmail(
     vatCents: amountCents > 0 && currency === "ILS" ? Math.floor(amountCents * 0.17) : null,
     issuedAt: date.toISOString(),
     confidence: hasInvoiceSignal && hasAttachment ? 0.85 : hasInvoiceSignal ? 0.65 : 0.45,
-    category: null,
+    category: matchVendorCategory(vendorName) ?? matchVendorCategory(subject) ?? null,
     rawText: bodyText?.substring(0, 2000) ?? null,
     gmailMessageId: message.id,
     attachments,
