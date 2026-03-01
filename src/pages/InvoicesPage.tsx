@@ -83,6 +83,7 @@ const InvoicesPage = () => {
   const [page, setPage] = useState(1);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
 
   // Detail sheet
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
@@ -262,23 +263,41 @@ const InvoicesPage = () => {
               <span className="text-border">|</span>
 
               {/* Quick presets */}
-              <Button variant="ghost" size="sm" onClick={() => {
-                const now = new Date();
-                setDateFrom(startOfMonth(subMonths(now, 1)));
-                setDateTo(startOfMonth(now));
-                setPage(1);
-              }}>חודש שעבר</Button>
-              <Button variant="ghost" size="sm" onClick={() => {
-                setDateFrom(startOfYear(new Date()));
-                setDateTo(new Date());
-                setPage(1);
-              }}>השנה</Button>
-              <Button variant="ghost" size="sm" onClick={() => {
-                const lastYear = subYears(new Date(), 1);
-                setDateFrom(startOfYear(lastYear));
-                setDateTo(endOfYear(lastYear));
-                setPage(1);
-              }}>שנה שעברה</Button>
+              <Button
+                variant={activePreset === "last-month" ? "secondary" : "ghost"}
+                size="sm"
+                className={activePreset === "last-month" ? "bg-coral/15 text-coral hover:bg-coral/20" : ""}
+                onClick={() => {
+                  const now = new Date();
+                  setDateFrom(startOfMonth(subMonths(now, 1)));
+                  setDateTo(startOfMonth(now));
+                  setActivePreset("last-month");
+                  setPage(1);
+                }}
+              >חודש שעבר</Button>
+              <Button
+                variant={activePreset === "this-year" ? "secondary" : "ghost"}
+                size="sm"
+                className={activePreset === "this-year" ? "bg-coral/15 text-coral hover:bg-coral/20" : ""}
+                onClick={() => {
+                  setDateFrom(startOfYear(new Date()));
+                  setDateTo(new Date());
+                  setActivePreset("this-year");
+                  setPage(1);
+                }}
+              >השנה</Button>
+              <Button
+                variant={activePreset === "last-year" ? "secondary" : "ghost"}
+                size="sm"
+                className={activePreset === "last-year" ? "bg-coral/15 text-coral hover:bg-coral/20" : ""}
+                onClick={() => {
+                  const lastYear = subYears(new Date(), 1);
+                  setDateFrom(startOfYear(lastYear));
+                  setDateTo(endOfYear(lastYear));
+                  setActivePreset("last-year");
+                  setPage(1);
+                }}
+              >שנה שעברה</Button>
 
               <span className="text-border">|</span>
 
@@ -294,7 +313,7 @@ const InvoicesPage = () => {
                   <Calendar
                     mode="single"
                     selected={dateFrom}
-                    onSelect={(d) => { setDateFrom(d); setPage(1); }}
+                    onSelect={(d) => { setDateFrom(d); setActivePreset(null); setPage(1); }}
                     locale={he}
                     disabled={(date) => (dateTo ? date > dateTo : false)}
                   />
@@ -312,7 +331,7 @@ const InvoicesPage = () => {
                   <Calendar
                     mode="single"
                     selected={dateTo}
-                    onSelect={(d) => { setDateTo(d); setPage(1); }}
+                    onSelect={(d) => { setDateTo(d); setActivePreset(null); setPage(1); }}
                     locale={he}
                     disabled={(date) => (dateFrom ? date < dateFrom : false)}
                   />
@@ -322,7 +341,7 @@ const InvoicesPage = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { setDateFrom(undefined); setDateTo(undefined); setPage(1); }}
+                  onClick={() => { setDateFrom(undefined); setDateTo(undefined); setActivePreset(null); setPage(1); }}
                 >
                   <X className="w-4 h-4" /> נקה
                 </Button>
