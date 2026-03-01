@@ -399,7 +399,7 @@ const SettingsPage = () => {
                     <SettingsCard title="WhatsApp">
                       <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="Main number (E.164)">
-                          <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" />
+                          <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" dir="ltr" />
                         </Field>
                         <Field label="Contact name">
                           <Input value={whatsAppName} onChange={(event) => setWhatsAppName(event.target.value)} placeholder="Owner name" className="h-11" />
