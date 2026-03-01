@@ -98,15 +98,9 @@ const SettingsPage = () => {
   }, [settingsQuery.data]);
 
   useEffect(() => {
-    if (!businessId || !settingsQuery.data?.whatsapp) {
-      return;
-    }
-    if (settingsQuery.data.whatsapp.provider !== "baileys") {
-      return;
-    }
-    if (whatsAppRuntimeStatus === "connected" || whatsAppRuntimeStatus === "failed") {
-      return;
-    }
+    if (!businessId) return;
+    // Poll when status is connecting or qr (waiting for user to scan)
+    if (whatsAppRuntimeStatus !== "connecting" && whatsAppRuntimeStatus !== "qr") return;
 
     const interval = window.setInterval(() => {
       getWhatsAppSession(businessId)
@@ -120,7 +114,7 @@ const SettingsPage = () => {
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [businessId, settingsQuery.data?.whatsapp, whatsAppRuntimeStatus]);
+  }, [businessId, whatsAppRuntimeStatus]);
 
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ["settings", businessId] });
