@@ -415,7 +415,7 @@ const SettingsPage = () => {
                         return (
                           <>
                             <div className="grid sm:grid-cols-2 gap-4">
-                              <Field label="מספר ראשי (E.164)">
+                              <Field label="מספר ראשי">
                                 <Input value={whatsAppPhone} onChange={(event) => setWhatsAppPhone(event.target.value)} placeholder="+972501234567" className="h-11" dir="ltr" />
                               </Field>
                               <Field label="שם איש קשר">
