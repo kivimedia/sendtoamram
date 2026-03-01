@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { format } from "date-fns";
+import { format, startOfMonth, subMonths, startOfYear, subYears, endOfYear } from "date-fns";
 import { he } from "date-fns/locale";
 
 import Navbar from "@/components/Navbar";
@@ -260,6 +260,29 @@ const InvoicesPage = () => {
                 {backfillMutation.isPending ? "מסווג..." : "סווג אוטומטית"}
               </Button>
               <span className="text-border">|</span>
+
+              {/* Quick presets */}
+              <Button variant="ghost" size="sm" onClick={() => {
+                const now = new Date();
+                setDateFrom(startOfMonth(subMonths(now, 1)));
+                setDateTo(startOfMonth(now));
+                setPage(1);
+              }}>חודש שעבר</Button>
+              <Button variant="ghost" size="sm" onClick={() => {
+                setDateFrom(startOfYear(new Date()));
+                setDateTo(new Date());
+                setPage(1);
+              }}>השנה</Button>
+              <Button variant="ghost" size="sm" onClick={() => {
+                const lastYear = subYears(new Date(), 1);
+                setDateFrom(startOfYear(lastYear));
+                setDateTo(endOfYear(lastYear));
+                setPage(1);
+              }}>שנה שעברה</Button>
+
+              <span className="text-border">|</span>
+
+              {/* Custom date pickers */}
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5">
