@@ -76,19 +76,19 @@ export async function registerBillingRoutes(app: FastifyInstance): Promise<void>
           await stripe.invoiceItems.del(item.id);
         }
 
-        // Pre-create an invoice item for the one-time setup fee ($13)
-        // This gets charged immediately on the first invoice
-        await stripe.invoiceItems.create({
-          customer: customerId!,
-          amount: ONBOARDING_AMOUNT,
-          currency: "usd",
-          description: "SendToAmram - Account Setup (one-time)",
-        });
-
         const session = await stripe.checkout.sessions.create({
           customer: customerId,
           mode: "subscription",
           line_items: [
+            // One-time setup fee - charged immediately
+            {
+              price_data: {
+                currency: "usd",
+                product_data: { name: "SendToAmram - Account Setup (one-time)" },
+                unit_amount: ONBOARDING_AMOUNT,
+              },
+              quantity: 1,
+            },
             // Monthly subscription - starts after 30-day trial
             {
               price_data: {
