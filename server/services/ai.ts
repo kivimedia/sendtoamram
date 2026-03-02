@@ -463,12 +463,38 @@ const INVOICE_TOOLS: Anthropic.Tool[] = [
       required: ["groupBy"],
     },
   },
+  {
+    name: "ignore_invoices",
+    description: "Remove/hide invoices - marks them as ignored so they are excluded from reports and lists. Use when user wants to delete, remove, hide, or exclude invoices.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        vendor: { type: "string", description: "Vendor name to match (case-insensitive)" },
+        category: { type: "string", description: "Only ignore invoices in this category (optional)" },
+        status: { type: "string", enum: ["sent", "pending", "review"], description: "Only ignore invoices with this status (optional)" },
+      },
+      required: ["vendor"],
+    },
+  },
+  {
+    name: "restore_invoices",
+    description: "Restore previously ignored/hidden invoices back to pending status. Use when user wants to bring back removed invoices.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        vendor: { type: "string", description: "Vendor name to match (case-insensitive)" },
+      },
+      required: ["vendor"],
+    },
+  },
 ];
 
 export interface InvoiceToolExecutor {
   searchInvoices(params: { vendor?: string; category?: string; status?: string; limit?: number }): Promise<any[]>;
   recategorizeInvoices(params: { vendor: string; oldCategory?: string; newCategory: string }): Promise<number>;
   getInvoiceStats(params: { groupBy: string; vendor?: string; category?: string; limit?: number }): Promise<any[]>;
+  ignoreInvoices(params: { vendor: string; category?: string; status?: string }): Promise<number>;
+  restoreInvoices(params: { vendor: string }): Promise<number>;
 }
 
 export async function invoiceChatResponse(
@@ -487,10 +513,19 @@ export async function invoiceChatResponse(
 סה"כ: ${context.totalDocs} חשבוניות, ₪${(context.totalAmountCents / 100).toLocaleString("he-IL")}
 קטגוריות: ${CATEGORY_LIST_STR}
 
-השתמש בכלים כדי לחפש, לסנן, ולשנות קטגוריות של חשבוניות.
+יכולות:
+- חיפוש חשבוניות לפי ספק, קטגוריה, סטטוס
+- שינוי קטגוריה של חשבוניות
+- סטטיסטיקות לפי קטגוריה או ספק
+- הסתרה/מחיקה של חשבוניות (הוצאה מדוחות)
+- שחזור חשבוניות שהוסתרו
+
 כשהמשתמש מבקש לשנות קטגוריה, בצע את הפעולה ודווח כמה חשבוניות עודכנו.
+כשהמשתמש מבקש למחוק, להסתיר, או להוציא חשבוניות מהדוחות - השתמש בכלי ignore_invoices.
+כשהמשתמש מבקש להחזיר חשבוניות שהוסתרו - השתמש בכלי restore_invoices.
 כשהמשתמש שואל על ספק, חפש את החשבוניות שלו.
-כשאתה מציג תוצאות, הצג אותן בצורה מסודרת עם סכומים בשקלים (₪).`;
+כשאתה מציג תוצאות, הצג אותן בצורה מסודרת עם סכומים בשקלים (₪).
+אם המשתמש כותב באנגלית, ענה באנגלית.`;
 
   const messages: Anthropic.MessageParam[] = [
     ...recentMessages.slice(-6).map((m) => ({
@@ -551,6 +586,16 @@ export async function invoiceChatResponse(
             category: input.category,
             limit: input.limit ?? 15,
           });
+        } else if (block.name === "ignore_invoices") {
+          const count = await executor.ignoreInvoices({
+            vendor: input.vendor,
+            category: input.category,
+            status: input.status,
+          });
+          result = { ignored: count, vendor: input.vendor };
+        } else if (block.name === "restore_invoices") {
+          const count = await executor.restoreInvoices({ vendor: input.vendor });
+          result = { restored: count, vendor: input.vendor };
         } else {
           result = { error: "Unknown tool" };
         }

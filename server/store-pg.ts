@@ -1941,6 +1941,45 @@ export class AppStorePg {
     }));
   }
 
+  async chatIgnoreInvoices(
+    businessId: string,
+    params: { vendor: string; category?: string; status?: string },
+  ): Promise<number> {
+    const conditions = ["business_id = $1", "LOWER(vendor_name) LIKE $2", "status != 'IGNORED'"];
+    const values: any[] = [businessId, `%${params.vendor.toLowerCase()}%`];
+    let idx = 3;
+
+    if (params.category) {
+      conditions.push(`LOWER(category) = $${idx}`);
+      values.push(params.category.toLowerCase());
+      idx++;
+    }
+    if (params.status) {
+      conditions.push(`UPPER(status) = $${idx}`);
+      values.push(params.status.toUpperCase());
+      idx++;
+    }
+
+    const result = await this.query(
+      `UPDATE documents SET status = 'IGNORED', updated_at = NOW()
+       WHERE ${conditions.join(" AND ")}`,
+      values,
+    );
+    return (result as any).rowCount ?? 0;
+  }
+
+  async chatRestoreInvoices(
+    businessId: string,
+    params: { vendor: string },
+  ): Promise<number> {
+    const result = await this.query(
+      `UPDATE documents SET status = 'PENDING', updated_at = NOW()
+       WHERE business_id = $1 AND LOWER(vendor_name) LIKE $2 AND status = 'IGNORED'`,
+      [businessId, `%${params.vendor.toLowerCase()}%`],
+    );
+    return (result as any).rowCount ?? 0;
+  }
+
   async postInvoiceChat(payload: { businessId: string; text: string; userId?: string }) {
     await this.getBusinessOrThrow(payload.businessId);
     const channel = "INVOICE_CHAT";
@@ -1970,6 +2009,8 @@ export class AppStorePg {
         searchInvoices: (params: any) => this.chatSearchInvoices(payload.businessId, params),
         recategorizeInvoices: (params: any) => this.chatRecategorizeInvoices(payload.businessId, params),
         getInvoiceStats: (params: any) => this.chatGetInvoiceStats(payload.businessId, params),
+        ignoreInvoices: (params: any) => this.chatIgnoreInvoices(payload.businessId, params),
+        restoreInvoices: (params: any) => this.chatRestoreInvoices(payload.businessId, params),
       };
 
       replyText = await invoiceChatResponse(
