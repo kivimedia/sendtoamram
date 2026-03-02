@@ -34,9 +34,9 @@ const steps = [
 ];
 
 const pricing = [
-  { name: "חינם", price: "$0", period: "/לתמיד", features: ["2 חשבונות מייל", "50 מסמכים/חודש", "בוט וואטסאפ", "דוחות בסיסיים"], cta: "התחל בחינם", popular: false },
-  { name: "פרו", price: "$15", period: "/חודש", features: ["10 חשבונות מייל", "מסמכים ללא הגבלה", "שאילתות AI בוואטסאפ", "דוחות מתקדמים", "כל האינטגרציות"], cta: "שדרג לפרו", popular: true },
-  { name: "עסקי", price: "$39", period: "/חודש", features: ["תיבות דואר ללא הגבלה", "צוות ללא הגבלה", "תמיכה עדיפה", "קטגוריות מותאמות", "White-label"], cta: "צור קשר", popular: false },
+  { name: "ניסיון חינם", price: "$0", period: "/30 יום", features: ["תיבת דואר אחת", "מסמכים ללא הגבלה", "בוט וואטסאפ", "דוחות בסיסיים"], cta: "התחל בחינם", popular: false, note: null },
+  { name: "מלא", price: "$7", period: "/חודש", features: ["תיבות דואר ללא הגבלה", "מסמכים ללא הגבלה", "שאילתות AI בוואטסאפ", "דוחות מתקדמים", "כל האינטגרציות"], cta: "התחל עכשיו", popular: true, note: "דמי הקמה חד-פעמיים: $13" },
+  { name: "רואי חשבון", price: "$0", period: "/לתמיד", features: ["לקוחות ללא הגבלה", "מעקב סטטוס לקוחות", "קבלת מסמכים אוטומטית", "דוחות מרוכזים"], cta: "הרשם כרו״ח", popular: false, note: null },
 ];
 
 const testimonials = [
@@ -210,10 +210,12 @@ const LandingPage = () => {
                   </div>
                 )}
                 <h3 className="font-display font-bold text-xl text-foreground mb-2">{p.name}</h3>
-                <div className="mb-6">
+                <div className="mb-2">
                   <span className="font-display font-bold text-4xl text-foreground">{p.price}</span>
                   <span className="text-muted-foreground">{p.period}</span>
                 </div>
+                {p.note && <p className="text-xs text-muted-foreground mb-4">{p.note}</p>}
+                {!p.note && <div className="mb-4" />}
                 <ul className="space-y-3 mb-8">
                   {p.features.map(f => (
                     <li key={f} className="flex items-center gap-2 text-foreground">

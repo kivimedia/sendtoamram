@@ -917,23 +917,70 @@ const DashboardPage = () => {
           </DialogHeader>
           {detailQuery.isLoading && <p className="text-sm text-muted-foreground">טוען פרטים...</p>}
           {detailQuery.data && !isEditing && (
-            <div className="space-y-2 text-sm">
-              <p><span className="font-medium">ספק:</span> {detailQuery.data.vendor}</p>
-              <p><span className="font-medium">סכום:</span> {formatAmount(detailQuery.data.amountCents)}</p>
-              <p><span className="font-medium">מע״מ:</span> {detailQuery.data.vatCents ? formatAmount(detailQuery.data.vatCents) : "לא זוהה"}</p>
-              <p><span className="font-medium">תאריך:</span> {formatDate(detailQuery.data.issuedAt)}</p>
-              <p><span className="font-medium">סטטוס:</span> {statusConfig[detailQuery.data.status]?.label ?? detailQuery.data.status}</p>
-              <p><span className="font-medium">מקור:</span> {detailQuery.data.source}</p>
-              <p><span className="font-medium">סוג:</span> {detailQuery.data.type}</p>
-              <p><span className="font-medium">קטגוריה:</span> {detailQuery.data.category}</p>
-              <p><span className="font-medium">ביטחון OCR:</span> {((detailQuery.data.confidence ?? 0) * 100).toFixed(1)}%</p>
-              {detailQuery.data.comments && (
-                <p><span className="font-medium">הערות:</span> {detailQuery.data.comments}</p>
-              )}
-              {detailQuery.data.rawText && (
+            <div className="space-y-4 text-sm">
+              {/* Vendor + Amount header */}
+              <div className="flex items-center justify-between pb-3 border-b border-border">
+                <span className="font-display font-semibold text-lg text-foreground">{detailQuery.data.vendor}</span>
+                <span className="font-display font-bold text-xl text-foreground">{formatAmount(detailQuery.data.amountCents)}</span>
+              </div>
+
+              {/* Details grid */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
                 <div>
-                  <p className="font-medium">טקסט גולמי:</p>
-                  <p className="text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto text-xs">{detailQuery.data.rawText}</p>
+                  <span className="text-xs text-muted-foreground">תאריך</span>
+                  <p className="font-medium text-foreground">{formatDate(detailQuery.data.issuedAt)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">מע״מ</span>
+                  <p className="font-medium text-foreground">{detailQuery.data.vatCents ? formatAmount(detailQuery.data.vatCents) : "לא זוהה"}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">סטטוס</span>
+                  <p className="font-medium text-foreground">{statusConfig[detailQuery.data.status]?.label ?? detailQuery.data.status}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">קטגוריה</span>
+                  <p className="font-medium text-foreground">{detailQuery.data.category}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">מקור</span>
+                  <p className="font-medium text-foreground">{detailQuery.data.source}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">סוג</span>
+                  <p className="font-medium text-foreground">{detailQuery.data.type}</p>
+                </div>
+              </div>
+
+              {/* OCR confidence bar */}
+              <div className="pt-2 border-t border-border">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-muted-foreground">ביטחון OCR</span>
+                  <span className="text-xs font-medium text-foreground">{((detailQuery.data.confidence ?? 0) * 100).toFixed(0)}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${(detailQuery.data.confidence ?? 0) >= 0.8 ? "bg-success" : (detailQuery.data.confidence ?? 0) >= 0.5 ? "bg-warning" : "bg-destructive"}`}
+                    style={{ width: `${((detailQuery.data.confidence ?? 0) * 100).toFixed(0)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Comments */}
+              {detailQuery.data.comments && (
+                <div className="pt-2 border-t border-border">
+                  <span className="text-xs text-muted-foreground">הערות</span>
+                  <p className="text-foreground mt-0.5">{detailQuery.data.comments}</p>
+                </div>
+              )}
+
+              {/* Raw text collapsible */}
+              {detailQuery.data.rawText && (
+                <div className="pt-2 border-t border-border">
+                  <span className="text-xs text-muted-foreground">טקסט גולמי</span>
+                  <div className="mt-1 bg-secondary/50 rounded-lg p-3 max-h-32 overflow-y-auto">
+                    <p className="text-muted-foreground whitespace-pre-wrap text-xs leading-relaxed">{detailQuery.data.rawText}</p>
+                  </div>
                 </div>
               )}
             </div>

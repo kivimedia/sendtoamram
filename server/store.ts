@@ -991,16 +991,27 @@ export class AppStore {
             role: m.direction === "USER" ? "user" as const : "assistant" as const,
             text: m.text,
           }));
-        const recentDocs = this.data.documents
+        const allDocs = this.data.documents
           .filter((d) => d.businessId === payload.businessId)
-          .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))
-          .slice(0, 20)
+          .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
+
+        // Build inbox name map for richer context
+        const inboxMap = new Map<string, string>();
+        for (const ic of this.data.inboxConnections.filter((c) => c.businessId === payload.businessId)) {
+          inboxMap.set(ic.id, ic.email);
+        }
+
+        const recentDocs = allDocs
+          .slice(0, 30)
           .map((d) => ({
             vendor: d.vendorName,
             amountCents: d.amountCents,
             category: d.category,
             status: d.status,
             issuedAt: d.issuedAt,
+            source: d.source,
+            type: d.type,
+            inbox: d.inboxConnectionId ? inboxMap.get(d.inboxConnectionId) ?? null : null,
           }));
         replyText = await chatResponse(payload.businessId, payload.text, recentMsgs, {
           businessName: summary.business.name,

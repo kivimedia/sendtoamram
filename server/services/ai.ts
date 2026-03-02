@@ -586,20 +586,46 @@ export async function chatResponse(
 ): Promise<string> {
   const model = env.AI_MODEL_CHEAP;
 
-  const systemPrompt = `אתה "Amram AI", עוזר חכם לניהול חשבוניות והוצאות עבור עסקים ישראליים.
-ענה בעברית בצורה תמציתית וידידותית (1-3 משפטים).
+  // Pre-analyze for duplicates: same vendor+amount+date from different sources/inboxes
+  const docs = context.recentDocs ?? [];
+  const duplicateGroups: string[] = [];
+  const seen = new Map<string, any[]>();
+  for (const d of docs) {
+    const key = `${d.vendor}|${d.amountCents}|${d.issuedAt}`;
+    if (!seen.has(key)) seen.set(key, []);
+    seen.get(key)!.push(d);
+  }
+  for (const [, group] of seen) {
+    if (group.length > 1) {
+      const sources = group.map((g: any) => g.inbox || g.source).join(", ");
+      duplicateGroups.push(`${group[0].vendor} - ₪${(group[0].amountCents / 100).toFixed(2)} (${group[0].issuedAt}) נמצא ${group.length} פעמים מ: ${sources}`);
+    }
+  }
+
+  const systemPrompt = `אתה "Amram AI", עוזר חכם ומקצועי לניהול חשבוניות והוצאות עבור עסקים ישראליים.
+ענה בעברית בצורה ידידותית ומועילה. תן תשובות מפורטות כשהמשתמש שואל שאלה ספציפית.
 
 הקשר עסקי:
 - שם העסק: ${context.businessName}
 - רואה חשבון: ${context.accountantName}
 - סיכום: סה"כ ${context.summary?.totals?.documents ?? 0} מסמכים, ${context.summary?.totals?.sent ?? 0} נשלחו, ${context.summary?.totals?.pending ?? 0} ממתינים
 - סכום כולל: ₪${((context.summary?.totals?.amountCents ?? 0) / 100).toLocaleString("he-IL")}
-- מסמכים אחרונים: ${JSON.stringify(context.recentDocs?.slice(0, 10) ?? [])}
+${duplicateGroups.length > 0 ? `\n- כפילויות שזוהו:\n${duplicateGroups.map((d) => `  * ${d}`).join("\n")}` : "- לא זוהו כפילויות בין תיבות דואר שונות."}
+- מסמכים אחרונים (כולל מקור ותיבת דואר): ${JSON.stringify(docs.slice(0, 15))}
+
+יכולות:
+- ניתוח הוצאות לפי קטגוריה, ספק, תקופה
+- זיהוי כפילויות בין תיבות דואר שונות (אותו ספק + סכום + תאריך ממקורות שונים)
+- סיכומים חודשיים ומגמות
+- מעקב אחר סטטוס מסמכים (ממתין/נשלח/לבדיקה)
+- מידע על תיבות דואר מחוברות ומקורות מסמכים
 
 כללים:
-- ענה רק על סמך הנתונים שבהקשר. אל תמציא.
-- אם אינך יודע, אמור "אין לי מספיק מידע לענות על זה."
-- אם שואלים על סכומים, ענה בשקלים (₪).`;
+- ענה על סמך הנתונים שבהקשר. אל תמציא נתונים.
+- אם שואלים על כפילויות - בדוק אם אותו מסמך (ספק+סכום+תאריך) הגיע ממספר מקורות/תיבות דואר.
+- אם שואלים על סכומים, ענה בשקלים (₪).
+- אם אינך יודע, אמור "אין לי מספיק מידע כרגע."
+- אם המשתמש כותב באנגלית, ענה באנגלית.`;
 
   const messages: Anthropic.MessageParam[] = [
     ...recentMessages.slice(-8).map((m) => ({
@@ -611,7 +637,7 @@ export async function chatResponse(
 
   const response = await getClient().messages.create({
     model,
-    max_tokens: 512,
+    max_tokens: 1024,
     system: systemPrompt,
     messages,
   });
