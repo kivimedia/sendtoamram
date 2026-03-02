@@ -677,7 +677,7 @@ export class AppStorePg {
     return { byCategory, byMonth: byMonth.reverse() };
   }
 
-  async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50, fromDate?: string, toDate?: string) {
+  async getDashboardDocuments(businessId: string, status: string, page = 1, limit = 50, fromDate?: string, toDate?: string, categories?: string[]) {
     await this.getBusinessOrThrow(businessId);
 
     const conditions: string[] = [];
@@ -697,6 +697,10 @@ export class AppStorePg {
       end.setDate(end.getDate() + 1);
       params.push(end.toISOString().slice(0, 10));
       conditions.push(`AND d.issued_at < $${params.length}`);
+    }
+    if (categories && categories.length > 0) {
+      params.push(categories);
+      conditions.push(`AND COALESCE(d.category, 'כללי') = ANY($${params.length})`);
     }
 
     const whereExtra = conditions.join(" ");

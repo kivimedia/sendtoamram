@@ -111,8 +111,8 @@ const InvoicesPage = () => {
   });
 
   const documentsQuery = useQuery({
-    queryKey: ["invoices", "documents", businessId, activeStatus, page, dateFromStr, dateToStr],
-    queryFn: () => getDashboardDocuments(businessId!, activeStatus, page, 24, dateFromStr, dateToStr),
+    queryKey: ["invoices", "documents", businessId, activeStatus, page, dateFromStr, dateToStr, activeCategories],
+    queryFn: () => getDashboardDocuments(businessId!, activeStatus, page, 24, dateFromStr, dateToStr, activeCategories.length > 0 ? activeCategories : undefined),
     enabled: Boolean(businessId),
     placeholderData: (prev) => prev,
   });
@@ -209,9 +209,7 @@ const InvoicesPage = () => {
     let docs = documentsQuery.data?.documents ?? [];
     docs = docs.filter((d) => d.status !== "ignored");
 
-    if (activeCategories.length > 0) {
-      docs = docs.filter((d) => activeCategories.includes(d.category));
-    }
+    // Category filtering is now server-side, no need to filter here
 
     const term = searchTerm.trim().toLowerCase();
     if (term) {
@@ -223,7 +221,7 @@ const InvoicesPage = () => {
     }
 
     return docs;
-  }, [documentsQuery.data?.documents, activeCategories, searchTerm]);
+  }, [documentsQuery.data?.documents, searchTerm]);
 
   const totalDocs = documentsQuery.data?.total ?? 0;
   const totalPages = documentsQuery.data?.totalPages ?? 1;

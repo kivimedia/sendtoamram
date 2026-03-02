@@ -16,6 +16,7 @@ const documentQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  categories: z.string().optional(),
 });
 
 const chatMessageSchema = z.object({
@@ -67,7 +68,8 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   app.get("/dashboard/:businessId/documents", async (request) => {
     const { businessId } = businessParamsSchema.parse(request.params);
     const query = documentQuerySchema.parse(request.query);
-    return store.getDashboardDocuments(businessId, query.status, query.page, query.limit, query.fromDate, query.toDate);
+    const categories = query.categories ? query.categories.split(",").map(c => c.trim()).filter(Boolean) : undefined;
+    return store.getDashboardDocuments(businessId, query.status, query.page, query.limit, query.fromDate, query.toDate, categories);
   });
 
   app.get("/dashboard/:businessId/documents/:documentId", async (request) => {

@@ -298,10 +298,12 @@ export function getDashboardDocuments(
   limit = 50,
   fromDate?: string,
   toDate?: string,
+  categories?: string[],
 ): Promise<PaginatedDocuments> {
   const searchParams = new URLSearchParams({ status, page: String(page), limit: String(limit) });
   if (fromDate) searchParams.set("fromDate", fromDate);
   if (toDate) searchParams.set("toDate", toDate);
+  if (categories && categories.length > 0) searchParams.set("categories", categories.join(","));
   return apiRequest(`/dashboard/${businessId}/documents?${searchParams.toString()}`);
 }
 
