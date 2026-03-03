@@ -1796,6 +1796,69 @@ export class AppStorePg {
     return Boolean(row);
   }
 
+  // ─── Re-extraction for zero-amount docs ───
+
+  /** Get documents with amount_cents=0 that have raw_text available for re-extraction */
+  async getZeroAmountDocs(businessId: string, limit = 200): Promise<Array<{
+    id: string;
+    vendorName: string;
+    rawText: string;
+    gmailMessageId: string | null;
+    source: string;
+    confidence: number;
+  }>> {
+    return this.query(
+      `SELECT id, vendor_name AS "vendorName", raw_text AS "rawText",
+              gmail_message_id AS "gmailMessageId", source, confidence
+       FROM documents
+       WHERE business_id = $1
+         AND amount_cents = 0
+         AND status != 'IGNORED'
+         AND raw_text IS NOT NULL
+         AND length(raw_text) > 20
+       ORDER BY confidence DESC, created_at DESC
+       LIMIT $2`,
+      [businessId, limit],
+    );
+  }
+
+  /** Get count of zero-amount docs for a business */
+  async getZeroAmountCount(businessId: string): Promise<number> {
+    const row = await this.queryOne(
+      `SELECT count(*)::int AS cnt FROM documents
+       WHERE business_id = $1 AND amount_cents = 0 AND status != 'IGNORED'`,
+      [businessId],
+    );
+    return row?.cnt ?? 0;
+  }
+
+  /** Bulk update amount + currency for re-extracted docs */
+  async bulkUpdateAmounts(businessId: string, updates: Array<{
+    id: string;
+    amountCents: number;
+    currency: string;
+    vendorName?: string;
+    category?: string;
+    vatCents?: number | null;
+  }>): Promise<number> {
+    let updated = 0;
+    for (const u of updates) {
+      const sets: string[] = ["amount_cents = $3", "currency = $4", "updated_at = now()"];
+      const vals: any[] = [businessId, u.id, u.amountCents, u.currency];
+      let idx = 5;
+      if (u.vendorName) { sets.push(`vendor_name = $${idx++}`); vals.push(u.vendorName); }
+      if (u.category) { sets.push(`category = $${idx++}`); vals.push(u.category); }
+      if (u.vatCents !== undefined) { sets.push(`vat_cents = $${idx++}`); vals.push(u.vatCents); }
+
+      const result = await this.query(
+        `UPDATE documents SET ${sets.join(", ")} WHERE business_id = $1 AND id = $2 AND amount_cents = 0`,
+        vals,
+      );
+      if ((result as any).rowCount > 0) updated++;
+    }
+    return updated;
+  }
+
   // ─── Category backfill ───
 
   /** Get distinct uncategorized vendors with their doc counts */

@@ -530,6 +530,31 @@ export function runCategoryBackfill(businessId: string): Promise<BackfillRespons
   });
 }
 
+// ─── Re-extraction ───
+
+export interface ReExtractResponse {
+  extracted: number;
+  regexFixed: number;
+  aiProcessed: number;
+  remaining: number;
+  total: number;
+  message?: string;
+}
+
+export interface ReExtractCountResponse {
+  count: number;
+}
+
+export function getReExtractCount(businessId: string): Promise<ReExtractCountResponse> {
+  return apiRequest(`/dashboard/${businessId}/re-extract/count`);
+}
+
+export function runReExtract(businessId: string): Promise<ReExtractResponse> {
+  return apiRequest(`/dashboard/${businessId}/re-extract`, {
+    method: "POST",
+  });
+}
+
 // ─── Missing Receipt Alerts ───
 
 export interface MissingReceiptAlert {

@@ -358,23 +358,36 @@ export async function getLatestHistoryId(accessToken: string): Promise<string> {
 
 // ─── Amount extraction helper (shared by quick scan + full sync) ───
 
-function extractAmountFromText(text: string): { amountCents: number; currency: string } {
+export function extractAmountFromText(text: string): { amountCents: number; currency: string } {
+  // Strip HTML if present (for re-extraction of stored raw_text)
+  const cleanText = text.startsWith("<!") || text.startsWith("<html") ? stripHtml(text) : text;
+
   const amountPatterns: Array<{ re: RegExp; cur: string }> = [
+    // ILS patterns
     { re: /(?:₪|ILS|NIS)\s*([\d,]+\.?\d*)/, cur: "ILS" },
     { re: /([\d,]+\.?\d*)\s*(?:₪|ILS|NIS)/, cur: "ILS" },
+    { re: /סה"כ[:\s]*([\d,]+\.?\d*)/, cur: "ILS" },
+    { re: /סה״כ[:\s]*([\d,]+\.?\d*)/, cur: "ILS" },
+    { re: /סכום[:\s]*([\d,]+\.?\d*)/, cur: "ILS" },
+    // USD patterns
     { re: /\$\s*([\d,]+\.?\d*)/, cur: "USD" },
     { re: /([\d,]+\.?\d*)\s*USD/i, cur: "USD" },
+    // EUR patterns
     { re: /€\s*([\d,]+\.?\d*)/, cur: "EUR" },
     { re: /([\d,]+\.?\d*)\s*EUR/i, cur: "EUR" },
-    { re: /סה"כ[:\s]*([\d,]+\.?\d*)/, cur: "ILS" },
-    { re: /total[:\s]*([\d,]+\.?\d*)/i, cur: "ILS" },
+    // Generic total/amount patterns (default ILS)
+    { re: /total[:\s]*\$?\s*([\d,]+\.?\d*)/i, cur: "USD" },
+    { re: /amount[:\s]*\$?\s*([\d,]+\.?\d*)/i, cur: "USD" },
+    { re: /charged?\s*\$?\s*([\d,]+\.?\d*)/i, cur: "USD" },
+    { re: /paid\s*\$?\s*([\d,]+\.?\d*)/i, cur: "USD" },
+    { re: /receipt.*?\$\s*([\d,]+\.?\d*)/i, cur: "USD" },
   ];
   for (const { re, cur } of amountPatterns) {
-    const match = text.match(re);
+    const match = cleanText.match(re);
     if (match) {
       const raw = (match[1] ?? match[2] ?? "").replace(/,/g, "");
       const val = parseFloat(raw);
-      if (val > 0 && val < 1_000_000) {
+      if (val > 0.5 && val < 1_000_000) {
         return { amountCents: Math.round(val * 100), currency: cur };
       }
     }
@@ -383,6 +396,26 @@ function extractAmountFromText(text: string): { amountCents: number; currency: s
 }
 
 // ─── Email → Document extraction ───
+
+/** Strip HTML tags and decode entities to get readable text */
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&(\w+);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function extractPlainText(message: GmailMessage): string | null {
   if (message.payload.body?.data) {
@@ -398,6 +431,19 @@ function extractPlainText(message: GmailMessage): string | null {
       const nested = part.parts.find((p: any) => p.mimeType === "text/plain");
       if (nested?.body?.data) {
         return Buffer.from(nested.body.data, "base64url").toString("utf-8");
+      }
+    }
+  }
+  // Fallback: try HTML part and strip tags
+  const htmlPart = message.payload.parts?.find((p) => p.mimeType === "text/html");
+  if (htmlPart?.body?.data) {
+    return stripHtml(Buffer.from(htmlPart.body.data, "base64url").toString("utf-8"));
+  }
+  for (const part of message.payload.parts ?? []) {
+    if (part.parts) {
+      const nested = part.parts.find((p: any) => p.mimeType === "text/html");
+      if (nested?.body?.data) {
+        return stripHtml(Buffer.from(nested.body.data, "base64url").toString("utf-8"));
       }
     }
   }

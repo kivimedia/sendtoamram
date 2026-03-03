@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   Send,
+  RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
@@ -40,6 +41,8 @@ import {
   getDashboardDocumentDetail,
   updateDocument,
   runCategoryBackfill,
+  runReExtract,
+  getReExtractCount,
   getInvoiceChat,
   postInvoiceChat,
 } from "@/lib/api";
@@ -161,6 +164,33 @@ const InvoicesPage = () => {
     onError: (error) => {
       toast({
         title: "סיווג נכשל",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const reExtractCountQuery = useQuery({
+    queryKey: ["invoices", "re-extract-count", businessId],
+    queryFn: () => getReExtractCount(businessId!),
+    enabled: Boolean(businessId),
+  });
+
+  const reExtractMutation = useMutation({
+    mutationFn: async () => runReExtract(businessId!),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices", "re-extract-count"] });
+      if (data.extracted > 0) {
+        toast({ title: `חולצו סכומים מ-${data.extracted} מסמכים (${data.regexFixed} רגקס, ${data.aiProcessed} AI). נותרו ${data.remaining}` });
+      } else {
+        toast({ title: data.message ?? "לא נמצאו סכומים חדשים" });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "חילוץ נכשל",
         description: error instanceof Error ? error.message : "אירעה שגיאה.",
         variant: "destructive",
       });
@@ -296,6 +326,18 @@ const InvoicesPage = () => {
                 {backfillMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                 {backfillMutation.isPending ? "מסווג..." : "סווג אוטומטית"}
               </Button>
+              {(reExtractCountQuery.data?.count ?? 0) > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => reExtractMutation.mutate()}
+                  disabled={reExtractMutation.isPending}
+                >
+                  {reExtractMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                  {reExtractMutation.isPending ? "מחלץ..." : `חלץ סכומים (${reExtractCountQuery.data?.count})`}
+                </Button>
+              )}
               <span className="text-border">|</span>
 
               {/* Quick presets */}

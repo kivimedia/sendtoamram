@@ -1,9 +1,9 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { store } from "../store";
-import { syncGmailInbox } from "../services/gmail-sync";
+import { syncGmailInbox, extractAmountFromText, stripHtml } from "../services/gmail-sync";
 import { sendDocumentsToAccountant } from "../services/email";
-import { matchVendorCategory, BUILTIN_CATEGORIES } from "../services/ai";
+import { matchVendorCategory, BUILTIN_CATEGORIES, isAiEnabled, extractInvoiceFromText } from "../services/ai";
 import { env } from "../config";
 
 const businessParamsSchema = z.object({
@@ -296,6 +296,104 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
       categorized: totalCategorized,
       vendors: vendorsCategorized,
       remaining: (await store.getUncategorizedVendors(businessId)).reduce((s, v) => s + v.count, 0),
+    };
+  });
+
+  // ─── Re-extraction for zero-amount docs ───
+
+  app.get("/dashboard/:businessId/re-extract/count", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    const count = await store.getZeroAmountCount(businessId);
+    return { count };
+  });
+
+  app.post("/dashboard/:businessId/re-extract", async (request) => {
+    const { businessId } = businessParamsSchema.parse(request.params);
+    const docs = await store.getZeroAmountDocs(businessId, 200);
+
+    if (docs.length === 0) {
+      return { extracted: 0, aiProcessed: 0, total: 0, message: "אין מסמכים עם סכום חסר" };
+    }
+
+    const updates: Array<{
+      id: string;
+      amountCents: number;
+      currency: string;
+      vendorName?: string;
+      category?: string;
+      vatCents?: number | null;
+    }> = [];
+    let aiProcessed = 0;
+    const aiQueue: typeof docs = [];
+
+    // Phase 1: Improved regex on raw_text (free, instant)
+    for (const doc of docs) {
+      const text = doc.rawText;
+      const result = extractAmountFromText(text);
+      if (result.amountCents > 0) {
+        const category = matchVendorCategory(doc.vendorName);
+        updates.push({
+          id: doc.id,
+          amountCents: result.amountCents,
+          currency: result.currency,
+          category: category ?? undefined,
+          vatCents: result.amountCents > 0 && result.currency === "ILS"
+            ? Math.floor(result.amountCents * 0.17) : null,
+        });
+      } else {
+        aiQueue.push(doc);
+      }
+    }
+
+    // Phase 2: AI extraction on remaining docs (up to 30 to keep costs/time reasonable)
+    if (isAiEnabled() && aiQueue.length > 0) {
+      const aiBatch = aiQueue.slice(0, 30);
+      const vendorMappings = await store.getVendorCategoryMappings(businessId);
+      const mappingsSlice = vendorMappings.slice(0, 20).map((m: any) => ({
+        vendorNameOriginal: m.vendorNameOriginal,
+        category: m.category,
+      }));
+
+      for (const doc of aiBatch) {
+        try {
+          // Clean up text for AI - strip HTML if present
+          const cleanText = doc.rawText.startsWith("<!") || doc.rawText.startsWith("<html")
+            ? stripHtml(doc.rawText)
+            : doc.rawText;
+
+          if (cleanText.length < 30) continue;
+
+          const extracted = await extractInvoiceFromText(businessId, cleanText, mappingsSlice);
+          if (extracted.amountCents > 0 && extracted.confidence > 0.3) {
+            updates.push({
+              id: doc.id,
+              amountCents: extracted.amountCents,
+              currency: extracted.currency,
+              vendorName: extracted.vendorName !== "לא ידוע" ? extracted.vendorName : undefined,
+              category: extracted.category !== "כללי" ? extracted.category : undefined,
+              vatCents: extracted.vatCents,
+            });
+          }
+          aiProcessed++;
+        } catch (error: any) {
+          console.error(`[re-extract] AI failed for doc ${doc.id}:`, error.message);
+        }
+      }
+    }
+
+    // Apply updates
+    const updated = updates.length > 0
+      ? await store.bulkUpdateAmounts(businessId, updates)
+      : 0;
+
+    const remaining = await store.getZeroAmountCount(businessId);
+
+    return {
+      extracted: updated,
+      regexFixed: updates.length - aiProcessed,
+      aiProcessed,
+      remaining,
+      total: docs.length,
     };
   });
 }
