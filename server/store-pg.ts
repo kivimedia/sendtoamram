@@ -2043,6 +2043,85 @@ export class AppStorePg {
     return (result as any).rowCount ?? 0;
   }
 
+  async chatSendToAccountant(
+    businessId: string,
+    params: { fromDate?: string; toDate?: string },
+  ): Promise<{ sent: boolean; documentCount?: number; message?: string }> {
+    try {
+      const { sendDocumentsToAccountant } = await import("./services/email");
+      const { env } = await import("./config");
+
+      if (!env.RESEND_API_KEY) {
+        return { sent: false, message: "שליחת מייל לא מוגדרת (חסר RESEND_API_KEY)" };
+      }
+
+      const accountant = await this.getAccountantForBusiness(businessId);
+      if (!accountant.email) {
+        return { sent: false, message: "לא הוגדר מייל לרואה חשבון. עדכנו בהגדרות." };
+      }
+
+      const { documents } = await this.getDashboardDocuments(
+        businessId, "pending", 1, 10000,
+        params.fromDate, params.toDate,
+      );
+      if (documents.length === 0) {
+        return { sent: false, message: "אין מסמכים ממתינים לשליחה בטווח הנבחר." };
+      }
+
+      const summary = await this.buildSummary(businessId);
+
+      await sendDocumentsToAccountant({
+        accountantEmail: accountant.email,
+        accountantName: accountant.name,
+        businessName: summary.business.name,
+        documents: documents.map((d: any) => ({
+          vendor: d.vendor,
+          amountCents: d.amountCents,
+          currency: d.currency,
+          issuedAt: d.issuedAt,
+          category: d.category,
+          type: d.type ?? "invoice",
+        })),
+      });
+
+      const sentIds = documents.map((d: any) => d.id);
+      await this.markDocumentsSent(businessId, sentIds);
+
+      return { sent: true, documentCount: documents.length, message: `${documents.length} מסמכים נשלחו ל-${accountant.email}` };
+    } catch (err: any) {
+      return { sent: false, message: `שליחה נכשלה: ${err.message}` };
+    }
+  }
+
+  async chatFilterLast30Days(
+    businessId: string,
+    params: { status?: string },
+  ): Promise<{ documents: any[]; total: number; totalAmountCents: number }> {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fromDate = thirtyDaysAgo.toISOString().slice(0, 10);
+    const toDate = now.toISOString().slice(0, 10);
+    const status = params.status ?? "all";
+
+    const { documents, total } = await this.getDashboardDocuments(
+      businessId, status, 1, 50, fromDate, toDate,
+    );
+
+    const totalAmountCents = documents.reduce((sum: number, d: any) => sum + (d.amountCents ?? 0), 0);
+
+    return {
+      documents: documents.slice(0, 20).map((d: any) => ({
+        vendor: d.vendor,
+        amount: `₪${(d.amountCents / 100).toLocaleString("he-IL")}`,
+        category: d.category,
+        status: d.status,
+        date: d.issuedAt,
+      })),
+      total,
+      totalAmountCents,
+    };
+  }
+
   async postInvoiceChat(payload: { businessId: string; text: string; userId?: string }) {
     await this.getBusinessOrThrow(payload.businessId);
     const channel = "INVOICE_CHAT";
@@ -2074,6 +2153,8 @@ export class AppStorePg {
         getInvoiceStats: (params: any) => this.chatGetInvoiceStats(payload.businessId, params),
         ignoreInvoices: (params: any) => this.chatIgnoreInvoices(payload.businessId, params),
         restoreInvoices: (params: any) => this.chatRestoreInvoices(payload.businessId, params),
+        sendToAccountant: (params: any) => this.chatSendToAccountant(payload.businessId, params),
+        filterLast30Days: (params: any) => this.chatFilterLast30Days(payload.businessId, params),
       };
 
       replyText = await invoiceChatResponse(

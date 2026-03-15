@@ -107,7 +107,7 @@ export interface DocumentUpdate {
   comments?: string | null;
   amountCents?: number;
   vendorName?: string;
-  status?: "sent" | "pending" | "review";
+  status?: "sent" | "pending" | "review" | "ignored";
 }
 
 export interface DashboardChatMessage {

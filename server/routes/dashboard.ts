@@ -39,7 +39,7 @@ const updateDocumentSchema = z.object({
   comments: z.string().nullable().optional(),
   amountCents: z.number().int().optional(),
   vendorName: z.string().optional(),
-  status: z.enum(["sent", "pending", "review"]).optional(),
+  status: z.enum(["sent", "pending", "review", "ignored"]).optional(),
 });
 
 const monthQuerySchema = z.object({

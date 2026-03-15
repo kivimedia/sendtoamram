@@ -487,6 +487,27 @@ const INVOICE_TOOLS: Anthropic.Tool[] = [
       required: ["vendor"],
     },
   },
+  {
+    name: "send_to_accountant",
+    description: "Send pending invoices to the accountant (Amram). Optionally filter by date range. Use when user says 'send to Amram', 'send to accountant', 'שלח לעמרם', 'שלח לרואה חשבון'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        fromDate: { type: "string", description: "Start date filter YYYY-MM-DD (optional, e.g. last 30 days)" },
+        toDate: { type: "string", description: "End date filter YYYY-MM-DD (optional)" },
+      },
+    },
+  },
+  {
+    name: "filter_last_30_days",
+    description: "Get a summary of invoices from the last 30 days. Use when user asks about recent invoices, 'last 30 days', '30 ימים אחרונים'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", enum: ["all", "sent", "pending", "review"], description: "Filter by status (default: all)" },
+      },
+    },
+  },
 ];
 
 export interface InvoiceToolExecutor {
@@ -495,6 +516,8 @@ export interface InvoiceToolExecutor {
   getInvoiceStats(params: { groupBy: string; vendor?: string; category?: string; limit?: number }): Promise<any[]>;
   ignoreInvoices(params: { vendor: string; category?: string; status?: string }): Promise<number>;
   restoreInvoices(params: { vendor: string }): Promise<number>;
+  sendToAccountant(params: { fromDate?: string; toDate?: string }): Promise<{ sent: boolean; documentCount?: number; message?: string }>;
+  filterLast30Days(params: { status?: string }): Promise<{ documents: any[]; total: number; totalAmountCents: number }>;
 }
 
 export async function invoiceChatResponse(
@@ -519,10 +542,14 @@ export async function invoiceChatResponse(
 - סטטיסטיקות לפי קטגוריה או ספק
 - הסתרה/מחיקה של חשבוניות (הוצאה מדוחות)
 - שחזור חשבוניות שהוסתרו
+- שליחת חשבוניות ממתינות לרואה חשבון (עמרם)
+- סינון חשבוניות מ-30 ימים אחרונים
 
 כשהמשתמש מבקש לשנות קטגוריה, בצע את הפעולה ודווח כמה חשבוניות עודכנו.
 כשהמשתמש מבקש למחוק, להסתיר, או להוציא חשבוניות מהדוחות - השתמש בכלי ignore_invoices.
 כשהמשתמש מבקש להחזיר חשבוניות שהוסתרו - השתמש בכלי restore_invoices.
+כשהמשתמש מבקש לשלוח לעמרם/לרואה חשבון - השתמש בכלי send_to_accountant.
+כשהמשתמש מבקש חשבוניות מ-30 ימים אחרונים - השתמש בכלי filter_last_30_days.
 כשהמשתמש שואל על ספק, חפש את החשבוניות שלו.
 כשאתה מציג תוצאות, הצג אותן בצורה מסודרת עם סכומים בשקלים (₪).
 אם המשתמש כותב באנגלית, ענה באנגלית.`;
@@ -596,6 +623,15 @@ export async function invoiceChatResponse(
         } else if (block.name === "restore_invoices") {
           const count = await executor.restoreInvoices({ vendor: input.vendor });
           result = { restored: count, vendor: input.vendor };
+        } else if (block.name === "send_to_accountant") {
+          result = await executor.sendToAccountant({
+            fromDate: input.fromDate,
+            toDate: input.toDate,
+          });
+        } else if (block.name === "filter_last_30_days") {
+          result = await executor.filterLast30Days({
+            status: input.status,
+          });
         } else {
           result = { error: "Unknown tool" };
         }

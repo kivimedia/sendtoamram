@@ -10,15 +10,17 @@ import {
   Loader2,
   MessageCircle,
   Pencil,
+  RefreshCw,
   Save,
   Search,
   Send,
   RotateCcw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { format, startOfMonth, subMonths, startOfYear, subYears, endOfYear } from "date-fns";
+import { format, startOfMonth, subMonths, subDays, startOfYear, subYears, endOfYear } from "date-fns";
 import { he } from "date-fns/locale";
 
 import Navbar from "@/components/Navbar";
@@ -45,6 +47,8 @@ import {
   getReExtractCount,
   getInvoiceChat,
   postInvoiceChat,
+  syncDashboard,
+  sendToAccountant,
 } from "@/lib/api";
 import { getActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
@@ -197,6 +201,72 @@ const InvoicesPage = () => {
     },
   });
 
+  const syncMutation = useMutation({
+    mutationFn: async () => syncDashboard(businessId!),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      toast({
+        title: "סנכרון הושלם",
+        description: data.newDocuments > 0
+          ? `נמצאו ${data.newDocuments} מסמכים חדשים.`
+          : "אין מסמכים חדשים.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "סנכרון נכשל",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async () =>
+      sendToAccountant(businessId!, dateFromStr, dateToStr),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      if (data.sent) {
+        toast({
+          title: "נשלח לרואה החשבון",
+          description: `${data.documentCount} מסמכים נשלחו ל-${data.accountantEmail}`,
+        });
+      } else {
+        toast({
+          title: "אין מסמכים לשליחה",
+          description: data.message ?? "אין מסמכים ממתינים.",
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "השליחה נכשלה",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (docId: string) =>
+      updateDocument(businessId!, docId, { status: "ignored" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setSelectedDocId(null);
+      toast({ title: "החשבונית הוסרה" });
+    },
+    onError: (error) => {
+      toast({
+        title: "מחיקה נכשלה",
+        description: error instanceof Error ? error.message : "אירעה שגיאה.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // ─── Chat queries ───
 
   const chatQuery = useQuery({
@@ -320,6 +390,27 @@ const InvoicesPage = () => {
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {syncMutation.isPending ? "סורק..." : "סרוק מחדש"}
+              </Button>
+              <Button
+                variant="coral"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => sendMutation.mutate()}
+                disabled={sendMutation.isPending}
+              >
+                {sendMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {sendMutation.isPending ? "שולח..." : "שלח לעמרם"}
+              </Button>
+              <span className="text-border">|</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
                 onClick={() => backfillMutation.mutate()}
                 disabled={backfillMutation.isPending}
               >
@@ -341,6 +432,18 @@ const InvoicesPage = () => {
               <span className="text-border">|</span>
 
               {/* Quick presets */}
+              <Button
+                variant={activePreset === "last-30" ? "secondary" : "ghost"}
+                size="sm"
+                className={activePreset === "last-30" ? "bg-coral/15 text-coral hover:bg-coral/20" : ""}
+                onClick={() => {
+                  const now = new Date();
+                  setDateFrom(subDays(now, 30));
+                  setDateTo(now);
+                  setActivePreset("last-30");
+                  setPage(1);
+                }}
+              >30 ימים</Button>
               <Button
                 variant={activePreset === "last-month" ? "secondary" : "ghost"}
                 size="sm"
@@ -1034,22 +1137,37 @@ const InvoicesPage = () => {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    variant="outline"
-                    className="flex-1 gap-1.5"
-                    onClick={() => {
-                      setIsEditing(true);
-                      setEditForm({
-                        vendorName: detail.vendor,
-                        amountCents: detail.amountCents,
-                        category: detail.category,
-                        status: detail.status as any,
-                        comments: detail.comments,
-                      });
-                    }}
-                  >
-                    <Pencil className="w-4 h-4" /> ערוך
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-1.5"
+                      onClick={() => {
+                        setIsEditing(true);
+                        setEditForm({
+                          vendorName: detail.vendor,
+                          amountCents: detail.amountCents,
+                          category: detail.category,
+                          status: detail.status as any,
+                          comments: detail.comments,
+                        });
+                      }}
+                    >
+                      <Pencil className="w-4 h-4" /> ערוך
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => {
+                        if (window.confirm("להסיר חשבונית זו? ניתן לשחזר דרך הצ׳אט.")) {
+                          deleteMutation.mutate(detail.id);
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
