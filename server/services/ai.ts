@@ -1,13 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config";
 import { pool } from "../db";
+import { guardAnthropicClient } from "./model-policy";
 
 let client: Anthropic | null = null;
 
+// Single Anthropic client for the whole service - every messages.create in this
+// file goes through it, so guarding it here covers models that only exist at
+// runtime (env vars, per-call overrides). See ./model-policy for the ban.
 function getClient(): Anthropic {
   if (!client) {
     if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-    client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    client = guardAnthropicClient(new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }));
   }
   return client;
 }
