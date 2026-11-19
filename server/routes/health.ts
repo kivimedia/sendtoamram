@@ -62,18 +62,30 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
   // One real AI read of a fixed sample receipt, so a broken reader shows up as a
   // failed check instead of thousands of receipts silently saved at 0.
   registerCron(app, "/cron/ai-selftest", "AI self-test", async () => {
-    const { extractInvoiceFromText, isAiEnabled } = await import("../services/ai");
+    const { extractInvoiceFromText, isAiEnabled, AI_SELFTEST_BUSINESS_ID } = await import("../services/ai");
     if (!isAiEnabled()) return { ai: "disabled", model: env.AI_MODEL_CHEAP };
-    const sample = [
+    const receipt = [
       "From: Example Cloud Ltd <billing@example.com>",
       "Subject: Your receipt",
       "Amount paid: $10.00 USD",
       "Date paid: November 19, 2026",
     ].join("\n");
+    const notReceipt = [
+      "From: Dana Cohen <dana@example.com>",
+      "Subject: Re: balloon arch for Saturday",
+      "Hi! Attached a photo of the venue. Can you do the arch in gold and white? Thanks, Dana",
+    ].join("\n");
     try {
-      const result = await extractInvoiceFromText(AI_SELFTEST_BUSINESS_ID, sample);
-      const pass = result.amountCents === 1000 && result.currency === "USD";
-      return { ai: pass ? "pass" : "wrong", model: env.AI_MODEL_CHEAP, result };
+      const a = await extractInvoiceFromText(AI_SELFTEST_BUSINESS_ID, receipt);
+      const b = await extractInvoiceFromText(AI_SELFTEST_BUSINESS_ID, notReceipt);
+      const checks = {
+        receiptAmount: a.amountCents === 1000,
+        receiptCurrency: a.currency === "USD",
+        receiptIsReceipt: a.isReceipt !== false,
+        clientEmailIsNotReceipt: b.isReceipt === false,
+      };
+      const pass = Object.values(checks).every(Boolean);
+      return { ai: pass ? "pass" : "wrong", model: env.AI_MODEL_CHEAP, checks, receipt: a, clientEmail: b };
     } catch (error) {
       return {
         ai: "failed",
@@ -83,6 +95,3 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     }
   });
 }
-
-// Usage rows from the self-test are filed under this id, never under a real business.
-const AI_SELFTEST_BUSINESS_ID = "00000000-0000-0000-0000-000000000000";

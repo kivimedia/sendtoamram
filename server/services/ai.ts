@@ -22,12 +22,17 @@ export function isAiEnabled(): boolean {
 
 // ── Cost tracking ──────────────────────────────────────────────
 
+/** Business id the /cron/ai-selftest route reads under; never a real business. */
+export const AI_SELFTEST_BUSINESS_ID = "00000000-0000-0000-0000-000000000000";
+
 async function logUsage(
   businessId: string,
   model: string,
   operation: string,
   usage: { input_tokens: number; output_tokens: number },
 ): Promise<void> {
+  // The self-test has no business row (the table's foreign key would refuse it).
+  if (businessId === AI_SELFTEST_BUSINESS_ID) return;
   try {
     const isExpensive = model.includes("sonnet") || model.includes("opus");
     const inputCostPerMTok = isExpensive ? 300 : 25;
@@ -56,6 +61,8 @@ export interface ExtractedInvoice {
   type: string;
   category: string;
   confidence: number;
+  /** False when the model says this email is not a bill, receipt or payment at all. */
+  isReceipt?: boolean;
 }
 
 export interface VendorCategoryMapping {
@@ -69,9 +76,10 @@ const EXTRACTION_SYSTEM_PROMPT_BASE = `You are an Israeli invoice/receipt data e
 
 Return exactly this shape:
 {
+  "isReceipt": true,
   "vendorName": "string – the vendor/company name",
   "amountCents": 0,
-  "currency": "ILS",
+  "currency": "ISO code as printed, e.g. USD or ILS",
   "vatCents": null,
   "issuedAt": "YYYY-MM-DD",
   "type": "INVOICE",
@@ -80,7 +88,9 @@ Return exactly this shape:
 }
 
 Rules:
-- amountCents is in agorot (1 ILS = 100 agorot). Example: ₪150 = 15000
+- isReceipt: true only when this is a bill, invoice, receipt, payment confirmation or subscription charge from a business to the reader. false for personal or client correspondence, quotes or proposals, marketing, shipping or account notifications with no charge, and bot or system messages.
+- amountCents: the total charged, in the smallest unit of the currency printed on the document (cents for USD and EUR, agorot for ILS). Never convert between currencies. Examples: $10.00 = 1000 with currency "USD"; ₪150 = 15000 with currency "ILS".
+- currency: the ISO code of the currency printed on the document. Use ILS only when the amount is in shekels.
 - vatCents: If VAT is separately listed, extract it. Otherwise null.
 - type: one of INVOICE, RECEIPT, SUBSCRIPTION, PAYMENT_CONFIRMATION
 - category: one of תוכנה, חשבונות, משרד, ציוד, נסיעות, שיווק, מקצועי, כללי
@@ -111,21 +121,26 @@ function buildExtractionPrompt(vendorMappings?: VendorCategoryMapping[]): string
   return prompt;
 }
 
-function parseExtractedJson(response: Anthropic.Message): ExtractedInvoice {
-  const text =
-    response.content[0]?.type === "text" ? response.content[0].text : "";
-  const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+export function parseExtractedJson(response: Anthropic.Message): ExtractedInvoice {
+  // Newer models put a thinking block first; the answer is the first TEXT block.
+  const textBlock = response.content.find((b) => b.type === "text");
+  const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  const cleaned = start >= 0 && end > start ? text.slice(start, end + 1) : text.trim();
   try {
     const parsed = JSON.parse(cleaned);
+    const currency = String(parsed.currency || "ILS").trim().toUpperCase();
     return {
       vendorName: String(parsed.vendorName || "לא ידוע"),
       amountCents: Math.round(Number(parsed.amountCents) || 0),
-      currency: String(parsed.currency || "ILS"),
+      currency: /^[A-Z]{3}$/.test(currency) ? currency : "ILS",
       vatCents: parsed.vatCents != null ? Math.round(Number(parsed.vatCents)) : null,
       issuedAt: String(parsed.issuedAt || new Date().toISOString().slice(0, 10)),
       type: String(parsed.type || "INVOICE").toUpperCase(),
       category: String(parsed.category || "כללי"),
       confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
+      isReceipt: parsed.isReceipt !== false,
     };
   } catch {
     console.error("[ai] Failed to parse JSON response:", cleaned.slice(0, 200));

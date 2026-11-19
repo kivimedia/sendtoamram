@@ -7,6 +7,7 @@ import {
   fetchGmailAttachment,
   extractDocumentFromEmail,
   getLatestHistoryId,
+  attachmentKind,
 } from "./gmail-sync";
 
 const TIME_BUDGET_MS = 22_000; // 22s — leave 8s buffer for Vercel's 30s limit
@@ -355,11 +356,13 @@ export async function processAiBatch(scanJobId: string): Promise<{ processed: nu
 
       const base64Data = await fetchGmailAttachment(accessToken, item.gmailMessageId, att.body.attachmentId);
 
+      // Gmail labels many receipt PDFs application/octet-stream: trust the file name too.
+      const kind = attachmentKind({ filename: att.filename ?? "", mimeType: att.mimeType ?? "" });
       let extracted: any;
-      if (att.mimeType === "application/pdf") {
+      if (kind?.kind === "pdf") {
         extracted = await extractInvoiceFromPdf(inbox.businessId, base64Data, cheapModel, vendorMappings);
-      } else if (att.mimeType.startsWith("image/")) {
-        extracted = await extractInvoiceFromImage(inbox.businessId, base64Data, att.mimeType, cheapModel, vendorMappings);
+      } else if (kind?.kind === "image") {
+        extracted = await extractInvoiceFromImage(inbox.businessId, base64Data, kind.mediaType, cheapModel, vendorMappings);
       }
 
       if (extracted && extracted.confidence > 0.2 && item.documentId) {

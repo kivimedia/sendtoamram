@@ -1,7 +1,7 @@
 import { env } from "../config";
 import { store } from "../store";
 import { getValidAccessToken } from "./oauth";
-import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, type VendorCategoryMapping } from "./ai";
+import { isAiEnabled, extractInvoiceFromText, extractInvoiceFromImage, extractInvoiceFromPdf, type VendorCategoryMapping, type ExtractedInvoice } from "./ai";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -148,6 +148,31 @@ function extractPlainText(message: GmailMessage): string | null {
   return null;
 }
 
+/**
+ * What the AI can read in an attachment. Gmail labels many receipt PDFs (Stripe, fal,
+ * Supabase) as application/octet-stream, so the file name counts as much as the type.
+ */
+export function attachmentKind(att: { filename: string; mimeType: string }):
+  | { kind: "pdf"; mediaType: "application/pdf" }
+  | { kind: "image"; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" }
+  | null {
+  const name = (att.filename || "").toLowerCase();
+  const mime = (att.mimeType || "").toLowerCase();
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return { kind: "pdf", mediaType: "application/pdf" };
+  if (mime === "image/png" || name.endsWith(".png")) return { kind: "image", mediaType: "image/png" };
+  if (mime === "image/jpeg" || name.endsWith(".jpg") || name.endsWith(".jpeg")) return { kind: "image", mediaType: "image/jpeg" };
+  if (mime === "image/gif") return { kind: "image", mediaType: "image/gif" };
+  if (mime === "image/webp") return { kind: "image", mediaType: "image/webp" };
+  return null;
+}
+
+/** The attachment worth reading: a PDF named like a receipt or invoice, then any PDF, then an image. */
+export function pickAttachment<T extends { filename: string; mimeType: string }>(attachments: T[]): T | null {
+  const pdfs = attachments.filter((a) => attachmentKind(a)?.kind === "pdf");
+  const named = pdfs.find((a) => /receipt|invoice|קבלה|חשבונית/i.test(a.filename));
+  return named ?? pdfs[0] ?? attachments.find((a) => attachmentKind(a)?.kind === "image") ?? null;
+}
+
 export function extractDocumentFromEmail(
   message: GmailMessage,
   inbox: { id: string; businessId: string },
@@ -168,6 +193,8 @@ export function extractDocumentFromEmail(
   gmailMessageId: string;
   attachments: AttachmentInfo[];
   attachmentFilenames: string[];
+  hasInvoiceSignal: boolean;
+  emailHeader: string;
 } | null {
   const headers = Object.fromEntries(
     message.payload.headers.map((h) => [h.name.toLowerCase(), h.value]),
@@ -249,7 +276,56 @@ export function extractDocumentFromEmail(
     gmailMessageId: message.id,
     attachments,
     attachmentFilenames,
+    hasInvoiceSignal,
+    emailHeader: `From: ${from}\nSubject: ${subject}`,
   };
+}
+
+type EmailDoc = NonNullable<ReturnType<typeof extractDocumentFromEmail>>;
+
+/**
+ * One AI read of the best source in the email. A PDF is read as a document; an image only
+ * when the email looks like a bill (otherwise it is usually a logo, signature or photo, and
+ * the text says more for less); everything else is read from the email text.
+ * Returns null when there was nothing to read (no AI call made).
+ */
+async function readWithAi(
+  accessToken: string,
+  messageId: string,
+  doc: EmailDoc,
+  businessId: string,
+  vendorMappings: VendorCategoryMapping[],
+): Promise<ExtractedInvoice | null> {
+  const att = pickAttachment(doc.attachments);
+  const kind = att ? attachmentKind(att) : null;
+  if (att && kind && (kind.kind === "pdf" || doc.hasInvoiceSignal)) {
+    const data = await fetchGmailAttachment(accessToken, messageId, att.attachmentId);
+    return kind.kind === "pdf"
+      ? extractInvoiceFromPdf(businessId, data, undefined, vendorMappings)
+      : extractInvoiceFromImage(businessId, data, kind.mediaType, undefined, vendorMappings);
+  }
+  if (doc.rawText) return extractInvoiceFromText(businessId, `${doc.emailHeader}\n\n${doc.rawText}`, vendorMappings);
+  return null;
+}
+
+/** Copy what the AI read onto the document, keeping the currency it found. */
+function applyExtraction(doc: EmailDoc, extracted: ExtractedInvoice): void {
+  if (extracted.confidence <= 0.2) return;
+  doc.vendorName = extracted.vendorName || doc.vendorName;
+  if (extracted.amountCents > 0) {
+    doc.amountCents = extracted.amountCents;
+    doc.currency = extracted.currency || doc.currency;
+    doc.vatCents = extracted.vatCents;
+  } else {
+    doc.vatCents = extracted.vatCents ?? doc.vatCents;
+  }
+  doc.category = extracted.category || doc.category;
+  doc.confidence = extracted.confidence;
+  doc.type = extracted.type || doc.type;
+  if (extracted.issuedAt && extracted.issuedAt !== new Date().toISOString().slice(0, 10)) {
+    const issued = new Date(extracted.issuedAt);
+    if (!Number.isNaN(issued.getTime())) doc.issuedAt = issued.toISOString();
+  }
 }
 
 // ─── Main sync function ───
@@ -259,7 +335,10 @@ export interface SyncOptions {
   quickScan?: boolean;
 }
 
-export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOptions): Promise<{ newDocuments: number }> {
+export async function syncGmailInbox(
+  inboxConnectionId: string,
+  options?: SyncOptions,
+): Promise<{ newDocuments: number; aiRead?: number; skippedNotReceipts?: number }> {
   const { quickScan = false } = options ?? {};
   const inbox = await store.getInboxConnection(inboxConnectionId);
   if (!inbox || !inbox.oauthConnectionId) {
@@ -311,7 +390,13 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
 
   let newDocuments = 0;
   let aiProcessed = 0;
-  const AI_BATCH_LIMIT = 5; // Max AI calls per sync cycle for serverless timeout safety
+  let skippedNotReceipts = 0;
+  // Max AI reads per run, inside a time budget well under the function's 300 s limit.
+  // Only a real AI call uses a slot: a file the AI could not read used to use one up, so
+  // five mislabelled PDFs at the top of the inbox meant no receipt was read at all.
+  const AI_BATCH_LIMIT = 25;
+  const AI_TIME_BUDGET_MS = 150_000;
+  const startedAt = Date.now();
 
   for (const messageId of messageIds) {
     if (await store.hasDocumentForGmailMessage(inbox.businessId, messageId)) {
@@ -323,47 +408,22 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
       const doc = extractDocumentFromEmail(message, inbox);
       if (!doc) continue;
 
-      // AI extraction (if enabled, under batch limit, and NOT quick scan)
-      if (!quickScan && isAiEnabled() && aiProcessed < AI_BATCH_LIMIT) {
+      const aiAllowed = !quickScan && isAiEnabled() && aiProcessed < AI_BATCH_LIMIT
+        && Date.now() - startedAt < AI_TIME_BUDGET_MS;
+      if (aiAllowed) {
         try {
-          if (doc.attachments.length > 0) {
-            // Download and process the first attachment
-            const att = doc.attachments[0];
-            const base64Data = await fetchGmailAttachment(accessToken, messageId, att.attachmentId);
-
-            let extracted;
-            if (att.mimeType === "application/pdf") {
-              extracted = await extractInvoiceFromPdf(inbox.businessId, base64Data, undefined, vendorMappings);
-            } else if (att.mimeType.startsWith("image/")) {
-              extracted = await extractInvoiceFromImage(inbox.businessId, base64Data, att.mimeType, undefined, vendorMappings);
-            }
-
-            if (extracted && extracted.confidence > 0.2) {
-              doc.vendorName = extracted.vendorName || doc.vendorName;
-              doc.amountCents = extracted.amountCents || doc.amountCents;
-              doc.vatCents = extracted.vatCents ?? doc.vatCents;
-              doc.category = extracted.category || doc.category;
-              doc.confidence = extracted.confidence;
-              doc.type = extracted.type || doc.type;
-              if (extracted.issuedAt && extracted.issuedAt !== new Date().toISOString().slice(0, 10)) {
-                doc.issuedAt = new Date(extracted.issuedAt).toISOString();
-              }
-            }
+          const extracted = await readWithAi(accessToken, messageId, doc, inbox.businessId, vendorMappings);
+          if (extracted) {
             aiProcessed++;
-          } else if (doc.rawText) {
-            // Text-only AI extraction
-            const extracted = await extractInvoiceFromText(inbox.businessId, doc.rawText, vendorMappings);
-            if (extracted && extracted.confidence > 0.2) {
-              doc.vendorName = extracted.vendorName || doc.vendorName;
-              doc.amountCents = extracted.amountCents || doc.amountCents;
-              doc.vatCents = extracted.vatCents ?? doc.vatCents;
-              doc.category = extracted.category || doc.category;
-              doc.confidence = extracted.confidence;
-              doc.type = extracted.type || doc.type;
+            if (extracted.isReceipt === false && extracted.confidence >= 0.5) {
+              // Not a bill at all (client email, screenshot, notification): do not save it.
+              skippedNotReceipts++;
+              continue;
             }
-            aiProcessed++;
+            applyExtraction(doc, extracted);
           }
         } catch (aiErr) {
+          aiProcessed++; // a failing reader still costs time; the cap keeps it bounded
           console.error(`[gmail-sync] AI extraction failed for ${messageId}:`, aiErr);
           // Continue with regex-extracted data
         }
@@ -395,12 +455,17 @@ export async function syncGmailInbox(inboxConnectionId: string, options?: SyncOp
     console.error("[gmail-sync] Failed to update history cursor:", error);
   }
 
-  console.log(`[gmail-sync] Sync complete: ${newDocuments} new documents`);
-  return { newDocuments };
+  console.log(`[gmail-sync] Sync complete: ${newDocuments} new documents, ${aiProcessed} AI reads, ${skippedNotReceipts} not receipts`);
+  return { newDocuments, aiRead: aiProcessed, skippedNotReceipts };
 }
 
-export async function syncAllGmailInboxes(): Promise<{ total: number }> {
+export async function syncAllGmailInboxes(): Promise<{
+  total: number; aiRead: number; skippedNotReceipts: number; failedInboxes: number;
+}> {
   let total = 0;
+  let aiRead = 0;
+  let skippedNotReceipts = 0;
+  let failedInboxes = 0;
   // Get all businesses that have connected Gmail inboxes
   // We'll iterate all connected Gmail inboxes across all businesses
   try {
@@ -412,9 +477,12 @@ export async function syncAllGmailInboxes(): Promise<{ total: number }> {
     );
     for (const row of result.rows) {
       try {
-        const { newDocuments } = await syncGmailInbox(row.id);
-        total += newDocuments;
+        const result = await syncGmailInbox(row.id);
+        total += result.newDocuments;
+        aiRead += result.aiRead ?? 0;
+        skippedNotReceipts += result.skippedNotReceipts ?? 0;
       } catch (error) {
+        failedInboxes++;
         console.error(`[gmail-sync] Failed to sync inbox ${row.id}:`, error);
       }
     }
@@ -423,5 +491,5 @@ export async function syncAllGmailInboxes(): Promise<{ total: number }> {
     // Can't easily iterate all businesses in JSON mode without exposing internals
     console.log("[gmail-sync] Periodic sync skipped (no DATABASE_URL)");
   }
-  return { total };
+  return { total, aiRead, skippedNotReceipts, failedInboxes };
 }
