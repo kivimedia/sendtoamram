@@ -4,7 +4,7 @@ import Fastify, { FastifyInstance } from "fastify";
 
 // Vercel Cron calls every scheduled path with GET (plus "Authorization: Bearer $CRON_SECRET").
 // The routes were POST-only, so every scheduled run got a 404 and Gmail sync / deep scan never ran.
-const CRON_PATHS = ["/cron/gmail-sync", "/cron/deep-scan", "/cron/monthly-delivery", "/cron/missing-receipts"];
+const CRON_PATHS = ["/cron/gmail-sync", "/cron/deep-scan", "/cron/monthly-delivery", "/cron/missing-receipts", "/cron/ai-selftest"];
 
 let app: FastifyInstance;
 

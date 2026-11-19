@@ -58,4 +58,31 @@ export async function registerHealthRoutes(app: FastifyInstance): Promise<void> 
     const { processAllBusinesses } = await import("../services/missing-receipts");
     return processAllBusinesses();
   });
+
+  // One real AI read of a fixed sample receipt, so a broken reader shows up as a
+  // failed check instead of thousands of receipts silently saved at 0.
+  registerCron(app, "/cron/ai-selftest", "AI self-test", async () => {
+    const { extractInvoiceFromText, isAiEnabled } = await import("../services/ai");
+    if (!isAiEnabled()) return { ai: "disabled", model: env.AI_MODEL_CHEAP };
+    const sample = [
+      "From: Example Cloud Ltd <billing@example.com>",
+      "Subject: Your receipt",
+      "Amount paid: $10.00 USD",
+      "Date paid: November 19, 2026",
+    ].join("\n");
+    try {
+      const result = await extractInvoiceFromText(AI_SELFTEST_BUSINESS_ID, sample);
+      const pass = result.amountCents === 1000 && result.currency === "USD";
+      return { ai: pass ? "pass" : "wrong", model: env.AI_MODEL_CHEAP, result };
+    } catch (error) {
+      return {
+        ai: "failed",
+        model: env.AI_MODEL_CHEAP,
+        error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : String(error),
+      };
+    }
+  });
 }
+
+// Usage rows from the self-test are filed under this id, never under a real business.
+const AI_SELFTEST_BUSINESS_ID = "00000000-0000-0000-0000-000000000000";

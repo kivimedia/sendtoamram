@@ -30,12 +30,20 @@ export async function createServer() {
     credentials: false,
   });
 
-  // Override JSON parser to capture raw body for Stripe webhook verification
+  // Override JSON parser to capture raw body for Stripe webhook verification.
+  // The browser sends "Content-Type: application/json" on bodiless POSTs too (pay, deep scan,
+  // sync now, send to accountant): an empty body is "no body", never a parse error.
   app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+    const text = body as string;
+    (req as any).rawBody = text;
+    if (text.trim() === "") {
+      done(null, undefined);
+      return;
+    }
     try {
-      (req as any).rawBody = body;
-      done(null, JSON.parse(body as string));
+      done(null, JSON.parse(text));
     } catch (err: any) {
+      err.statusCode = 400;
       done(err, undefined);
     }
   });
@@ -61,6 +69,12 @@ export async function createServer() {
       }
       if (error.message.includes("not configured")) {
         reply.status(400).send({ message: error.message });
+        return;
+      }
+      // A client mistake (bad JSON, wrong content type) is a 4xx, not "Internal server error".
+      const statusCode = (error as { statusCode?: number }).statusCode;
+      if (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500) {
+        reply.status(statusCode).send({ message: error.message });
         return;
       }
     }
