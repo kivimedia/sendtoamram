@@ -289,7 +289,7 @@ type EmailDoc = NonNullable<ReturnType<typeof extractDocumentFromEmail>>;
  * the text says more for less); everything else is read from the email text.
  * Returns null when there was nothing to read (no AI call made).
  */
-async function readWithAi(
+export async function readWithAi(
   accessToken: string,
   messageId: string,
   doc: EmailDoc,
