@@ -9,7 +9,7 @@ await build({
   entryPoints: ["_api/index.ts"],
   bundle: true,
   platform: "node",
-  target: "node18",
+  target: "node22",
   format: "esm",
   outfile: path.join(outDir, "index.mjs"),
   external: [
@@ -27,13 +27,13 @@ const require = createRequire(import.meta.url);
   treeShaking: true,
 });
 
-// Write function config — use nodejs18.x for broader compatibility
+// Write function config. Vercel discontinued nodejs20.x (deploys refused, Nov 2026).
 writeFileSync(
   path.join(outDir, ".vc-config.json"),
   JSON.stringify(
     {
       handler: "index.mjs",
-      runtime: "nodejs20.x",
+      runtime: "nodejs22.x",
       launcherType: "Nodejs",
     },
     null,
