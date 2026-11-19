@@ -25,8 +25,11 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().default("SendToAmram <noreply@sendtoamram.co.il>"),
   ANTHROPIC_API_KEY: z.string().optional(),
-  AI_MODEL_EXPENSIVE: z.string().default("claude-sonnet-5"),
-  AI_MODEL_CHEAP: z.string().default("claude-haiku-4-5-20251001"),
+  // 19-Nov-2026 check on 38 real emails (20 receipts, 18 not): this pair scored the same as
+  // Haiku 4.5 + Sonnet 5 (20/20 receipts, 17/18 non-receipts), PDFs read in half the time,
+  // text reads cost a tenth. Sonnet stays on PDFs/images for Hebrew scans the check lacked.
+  AI_MODEL_EXPENSIVE: z.string().default("claude-sonnet-5-5"),
+  AI_MODEL_CHEAP: z.string().default("claude-haiku-5-5"),
   CRON_SECRET: z.string().optional(),
   ACCOUNTANT_TOKEN_SECRET: z.string().optional(),
   WHATSAPP_BRIDGE_URL: z.string().optional(),

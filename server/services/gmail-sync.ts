@@ -415,7 +415,10 @@ export async function syncGmailInbox(
           const extracted = await readWithAi(accessToken, messageId, doc, inbox.businessId, vendorMappings);
           if (extracted) {
             aiProcessed++;
-            if (extracted.isReceipt === false && extracted.confidence >= 0.5) {
+            // No confidence threshold: models score this verdict differently (Haiku 4.5 gives
+            // 0.1-0.2, Haiku 5.5 gives 0.9+). On the 19-Nov 38-email check no real receipt
+            // was ever called "not a receipt" by any model.
+            if (extracted.isReceipt === false) {
               // Not a bill at all (client email, screenshot, notification): do not save it.
               skippedNotReceipts++;
               continue;
