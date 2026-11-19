@@ -34,6 +34,8 @@ writeFileSync(
     {
       handler: "index.mjs",
       runtime: "nodejs22.x",
+      // Scheduled Gmail sync has no time budget of its own; give it room.
+      maxDuration: 300,
       launcherType: "Nodejs",
     },
     null,

@@ -1,85 +1,61 @@
 import { FastifyInstance } from "fastify";
 import { env } from "../config";
 
+// Vercel Cron calls each scheduled path with GET and "Authorization: Bearer $CRON_SECRET".
+// These routes used to be POST-only, so every scheduled run got a 404 and nothing ran.
+// POST stays accepted for manual runs.
+function registerCron(
+  app: FastifyInstance,
+  url: string,
+  label: string,
+  run: () => Promise<Record<string, unknown>>,
+): void {
+  app.route({
+    method: ["GET", "POST"],
+    url,
+    handler: async (request, reply) => {
+      const authHeader = request.headers.authorization;
+      if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
+        reply.code(401);
+        return { error: "Unauthorized" };
+      }
+
+      try {
+        const result = await run();
+        return { ok: true, ...result };
+      } catch (error) {
+        console.error(`[cron] ${label} failed:`, error);
+        reply.code(500);
+        return { error: `${label} failed` };
+      }
+    },
+  });
+}
+
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/health", async () => ({
     ok: true,
     timestamp: new Date().toISOString(),
   }));
 
-  // Vercel Cron endpoint for monthly delivery
-  app.post("/cron/monthly-delivery", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
-      reply.code(401);
-      return { error: "Unauthorized" };
-    }
-
-    try {
-      const { checkAndRunMonthlyDeliveries } = await import("../services/monthly-delivery");
-      const result = await checkAndRunMonthlyDeliveries();
-      return { ok: true, ...result };
-    } catch (error) {
-      console.error("[cron] Monthly delivery failed:", error);
-      reply.code(500);
-      return { error: "Monthly delivery failed" };
-    }
+  registerCron(app, "/cron/monthly-delivery", "Monthly delivery", async () => {
+    const { checkAndRunMonthlyDeliveries } = await import("../services/monthly-delivery");
+    return checkAndRunMonthlyDeliveries();
   });
 
-  // Vercel Cron endpoint for Gmail sync
-  app.post("/cron/gmail-sync", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
-      reply.code(401);
-      return { error: "Unauthorized" };
-    }
-
-    try {
-      const { syncAllGmailInboxes } = await import("../services/gmail-sync");
-      const result = await syncAllGmailInboxes();
-      return { ok: true, ...result };
-    } catch (error) {
-      console.error("[cron] Gmail sync failed:", error);
-      reply.code(500);
-      return { error: "Gmail sync failed" };
-    }
+  registerCron(app, "/cron/gmail-sync", "Gmail sync", async () => {
+    const { syncAllGmailInboxes } = await import("../services/gmail-sync");
+    return syncAllGmailInboxes();
   });
 
-  // Vercel Cron endpoint for deep scan processing
-  app.post("/cron/deep-scan", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
-      reply.code(401);
-      return { error: "Unauthorized" };
-    }
-
-    try {
-      const { processScanJobs } = await import("../services/deep-scan");
-      const result = await processScanJobs();
-      return { ok: true, ...result };
-    } catch (error) {
-      console.error("[cron] Deep scan failed:", error);
-      reply.code(500);
-      return { error: "Deep scan failed" };
-    }
+  registerCron(app, "/cron/deep-scan", "Deep scan", async () => {
+    const { processScanJobs } = await import("../services/deep-scan");
+    return processScanJobs();
   });
 
-  // Vercel Cron endpoint for missing receipt detection (1st of month, 9AM)
-  app.post("/cron/missing-receipts", async (request, reply) => {
-    const authHeader = request.headers.authorization;
-    if (env.CRON_SECRET && authHeader !== `Bearer ${env.CRON_SECRET}`) {
-      reply.code(401);
-      return { error: "Unauthorized" };
-    }
-
-    try {
-      const { processAllBusinesses } = await import("../services/missing-receipts");
-      const result = await processAllBusinesses();
-      return { ok: true, ...result };
-    } catch (error) {
-      console.error("[cron] Missing receipts check failed:", error);
-      reply.code(500);
-      return { error: "Missing receipts check failed" };
-    }
+  // 1st of the month, 9 AM
+  registerCron(app, "/cron/missing-receipts", "Missing receipts check", async () => {
+    const { processAllBusinesses } = await import("../services/missing-receipts");
+    return processAllBusinesses();
   });
 }
