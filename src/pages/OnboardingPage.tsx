@@ -77,6 +77,16 @@ const OnboardingPage = () => {
     exit: { x: 50, opacity: 0 },
   };
 
+  // A paid (or free) account skips the price screen and starts the deep scan directly.
+  const billingQuery = useQuery({
+    queryKey: ["billing", "status", businessId],
+    queryFn: () => getBillingStatus(businessId!),
+    enabled: Boolean(businessId),
+  });
+  const isAlreadyPaid = Boolean(
+    billingQuery.data?.onboardingPaid && billingQuery.data.subscriptionStatus === "active",
+  );
+
   // Poll deep scan status when on step 4
   const scanStatusQuery = useQuery<DeepScanStatus>({
     queryKey: ["deep-scan", "status", businessId],
@@ -547,9 +557,18 @@ const OnboardingPage = () => {
               <Button
                 variant="hero"
                 className="w-full h-12 mb-3"
-                onClick={() => setStep(3)}
+                onClick={() => (isAlreadyPaid ? handleCheckout() : setStep(3))}
+                disabled={isCheckingOut}
               >
-                הפעל סריקה עמוקה <ArrowLeft className="w-5 h-5" />
+                {isCheckingOut ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> מתחילים את הסריקה...
+                  </>
+                ) : (
+                  <>
+                    הפעל סריקה עמוקה <ArrowLeft className="w-5 h-5" />
+                  </>
+                )}
               </Button>
 
               <Button variant="outline" className="w-full h-10" onClick={() => setStep(1)}>
