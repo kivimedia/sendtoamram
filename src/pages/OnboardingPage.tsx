@@ -28,7 +28,9 @@ import {
   getDeepScanStatus,
   getOnboardingState,
   runInitialScan,
+  startDeepScan,
   startOnboarding,
+  updateSettingsAccountant,
 } from "@/lib/api";
 import { getActiveBusinessId, setActiveBusinessId } from "@/lib/session";
 import { useToast } from "@/hooks/use-toast";
@@ -172,6 +174,22 @@ const OnboardingPage = () => {
   const beginOnboarding = async () => {
     setIsStarting(true);
     try {
+      // Arrived with a business already (an invite link or a saved session):
+      // keep it and save the accountant there. Starting over here would move
+      // the user into a different, empty business.
+      if (businessId) {
+        const name = accountantName.trim();
+        const email = accountantEmail.trim();
+        if (name || email) {
+          await updateSettingsAccountant(businessId, {
+            ...(name ? { name } : {}),
+            ...(email ? { email } : {}),
+          });
+        }
+        setStep(1);
+        return;
+      }
+
       const response = await startOnboarding({
         accountantName: accountantName || undefined,
         accountantEmail: accountantEmail || undefined,
@@ -235,7 +253,19 @@ const OnboardingPage = () => {
     try {
       const response = await createCheckoutSession(businessId);
       if (response.alreadyPaid) {
-        // Already paid — skip to deep scan progress
+        // Already paid (or a free account): no Stripe webhook will start the
+        // deep scan, so start it here. Safe to repeat: an active scan is returned as is.
+        try {
+          await startDeepScan(businessId);
+        } catch (scanError) {
+          toast({
+            title: "לא ניתן להתחיל סריקה",
+            description: scanError instanceof Error ? scanError.message : "אפשר להתחיל אותה מהדשבורד.",
+            variant: "destructive",
+          });
+          navigate("/dashboard");
+          return;
+        }
         setStep(4);
         return;
       }

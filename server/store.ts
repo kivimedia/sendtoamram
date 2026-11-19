@@ -372,7 +372,8 @@ export class AppStore {
     accountantEmail?: string;
   }) {
     const timestamp = nowIso();
-    const email = normalizeEmail(payload.email ?? "demo@sendtoamram.co.il");
+    // No email yet: a unique anonymous user, never a shared placeholder.
+    const email = normalizeEmail(payload.email ?? `anon-${randomUUID()}@sendtoamram.co.il`);
     const accountantName = payload.accountantName?.trim() || "עמרם";
     let user = this.data.users.find((entry) => entry.email === email);
 

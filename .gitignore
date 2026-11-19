@@ -29,3 +29,6 @@ server/data/baileys-sessions/
 *.sln
 *.sw?
 .vercel
+
+# local plans (public repo)
+plans/

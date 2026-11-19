@@ -182,7 +182,9 @@ export class AppStorePg {
     accountantName?: string;
     accountantEmail?: string;
   }) {
-    const email = normalizeEmail(payload.email ?? "demo@sendtoamram.co.il");
+    // No email yet: give this visitor their own anonymous user. Never fall back to a
+    // shared placeholder, or every new visitor lands in the same business.
+    const email = normalizeEmail(payload.email ?? `anon-${randomUUID()}@sendtoamram.co.il`);
     const accountantName = payload.accountantName?.trim() || "עמרם";
     const accountantEmail = payload.accountantEmail?.trim() || undefined;
 
